@@ -1,0 +1,73 @@
+import { useRef, useEffect, useState } from 'react';
+import { LucideIcon } from 'lucide-react';
+
+interface ContextMenuProps {
+    x: number;
+    y: number;
+    options: {
+        label: string;
+        icon?: LucideIcon;
+        onClick: () => void;
+        variant?: 'default' | 'danger';
+    }[];
+    onClose: () => void;
+}
+
+export function ContextMenu({ x, y, options, onClose }: ContextMenuProps) {
+    const menuRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+                onClose();
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [onClose]);
+
+    // Ensure menu stays within viewport
+    const [adjustedPos, setAdjustedPos] = useState({ x, y });
+
+    useEffect(() => {
+        if (menuRef.current) {
+            const rect = menuRef.current.getBoundingClientRect();
+            let newX = x;
+            let newY = y;
+
+            if (x + rect.width > window.innerWidth) {
+                newX = window.innerWidth - rect.width - 10;
+            }
+            if (y + rect.height > window.innerHeight) {
+                newY = window.innerHeight - rect.height - 10;
+            }
+
+            setAdjustedPos({ x: newX, y: newY });
+        }
+    }, [x, y]);
+
+    return (
+        <div
+            ref={menuRef}
+            className="fixed z-[100] min-w-[180px] bg-white dark:bg-[#252526] border border-gray-200 dark:border-white/10 rounded-lg shadow-xl py-1 animate-in fade-in zoom-in duration-100"
+            style={{ left: adjustedPos.x, top: adjustedPos.y }}
+        >
+            {options.map((opt, idx) => (
+                <button
+                    key={idx}
+                    onClick={() => {
+                        opt.onClick();
+                        onClose();
+                    }}
+                    className={`w-full flex items-center gap-3 px-3 py-1.5 text-sm transition-colors hover:bg-gray-100 dark:hover:bg-white/5 ${opt.variant === 'danger'
+                            ? 'text-red-500 hover:text-red-600'
+                            : 'text-gray-700 dark:text-gray-300'
+                        }`}
+                >
+                    {opt.icon && <opt.icon size={16} className="opacity-70" />}
+                    {opt.label}
+                </button>
+            ))}
+        </div>
+    );
+}

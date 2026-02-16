@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f172a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e293b;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#06b6d4;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#8b5cf6;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2.5" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="512" height="512" rx="100" fill="url(#grad1)" stroke="url(#grad2)" stroke-width="8" />
+  
+  <!-- Circuit Grid Background (Subtle) -->
+  <path d="M50 256 H462 M256 50 V462" stroke="#334155" stroke-width="2" stroke-opacity="0.3" />
+  <circle cx="256" cy="256" r="150" stroke="#334155" stroke-width="2" stroke-opacity="0.3" fill="none" />
+
+  <!-- Oryx Head Construction -->
+  <g transform="translate(256, 280) scale(0.8)" filter="url(#glow)">
+    <!-- Horns -->
+    <path d="M-60 -120 L-80 -250 Q-90 -280 -60 -290 L-40 -200 Z" fill="url(#grad2)" />
+    <path d="M60 -120 L80 -250 Q90 -280 60 -290 L40 -200 Z" fill="url(#grad2)" />
+    
+    <!-- Face / Mask -->
+    <path d="M0 160 L-70 20 L-90 -60 L-40 -120 L0 -80 L40 -120 L90 -60 L70 20 Z" fill="#e2e8f0" stroke="url(#grad2)" stroke-width="4"/>
+    
+    <!-- Tech Lines / Circuits on Face -->
+    <path d="M0 160 L0 50 M-70 20 L-20 50 M70 20 L20 50" stroke="#0f172a" stroke-width="6" stroke-linecap="round" />
+    <circle cx="0" cy="50" r="15" fill="#0f172a" />
+    <circle cx="0" cy="50" r="8" fill="#06b6d4" />
+    
+    <!-- Eyes -->
+    <circle cx="-40" cy="-40" r="10" fill="#0f172a" />
+    <circle cx="40" cy="-40" r="10" fill="#0f172a" />
+    
+    <!-- Data Stream Particles -->
+    <circle cx="-100" cy="-200" r="6" fill="#06b6d4" opacity="0.8" />
+    <circle cx="110" cy="-150" r="4" fill="#8b5cf6" opacity="0.6" />
+    <circle cx="-120" cy="100" r="5" fill="#06b6d4" opacity="0.4" />
+  </g>
+  
+  <!-- Terminal Prompt Symbol -->
+  <text x="360" y="440" font-family="monospace" font-size="64" fill="#06b6d4" font-weight="bold">&gt;_</text>
+</svg>

@@ -1,6 +1,6 @@
 # Maintainer: Erkan Bekdemir <erkan@example.com>
 pkgname=oryx-serial-terminal
-pkgver=1.0.0
+pkgver=1.1.0.1
 pkgrel=1
 pkgdesc="Premium high-performance serial terminal built with Tauri and React"
 arch=('x86_64' 'aarch64')
@@ -8,11 +8,12 @@ url="https://github.com/errkanbekdemir/oryx-terminal"
 license=('MIT')
 depends=('gtk3' 'webkit2gtk-4.1' 'libsoup3' 'libnm')
 makedepends=('cargo' 'nodejs' 'npm')
-source=("${pkgname}-${pkgver}.tar.gz::https://github.com/errkanbekdemir/oryx-terminal/archive/refs/tags/v${pkgver}.tar.gz")
+_tag="1.1.0-1"
+source=("${pkgname}-${pkgver}.tar.gz::https://github.com/errkanbekdemir/oryx-terminal/archive/refs/tags/v${_tag}.tar.gz")
 sha256sums=('SKIP') # Use 'makepkg -g' to generate
 
 prepare() {
-  cd "oryx-terminal-${pkgver}"
+  cd "oryx-terminal-${_tag}"
   
   # Verify Rust environment
   if ! command -v cargo &> /dev/null; then
@@ -22,13 +23,13 @@ prepare() {
 }
 
 build() {
-  cd "oryx-terminal-${pkgver}"
+  cd "oryx-terminal-${_tag}"
   npm install
   npm run tauri build -- --bundles deb
 }
 
 package() {
-  cd "oryx-terminal-${pkgver}"
+  cd "oryx-terminal-${_tag}"
   
   # Extract the files from the generated deb package for simplicity
   # Alternatively, install manually from target/release/oryx

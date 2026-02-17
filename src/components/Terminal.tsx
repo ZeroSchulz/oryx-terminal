@@ -126,7 +126,7 @@ export function Terminal({
                             {/* Metadata Gutter (Timestamp + Direction) */}
                             <div className="flex items-center gap-2 px-2 bg-gray-50/5 dark:bg-white/[0.01] border-r border-gray-100 dark:border-white/5 select-none flex-shrink-0">
                                 {showTimestamp && (
-                                    <span className="text-gray-600 dark:text-white text-xs w-[85px] flex-shrink-0 font-mono tracking-tight text-right pr-1 border-r border-gray-200/50 dark:border-white/10 mr-1 opacity-80">
+                                    <span className="text-gray-600 dark:text-white text-xs w-[95px] flex-shrink-0 font-mono tracking-tight text-right pr-1 border-r border-gray-200/50 dark:border-white/10 mr-1 opacity-80">
                                         {line.timestamp}
                                     </span>
                                 )}

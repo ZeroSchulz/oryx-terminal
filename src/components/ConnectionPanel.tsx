@@ -24,10 +24,17 @@ export function ConnectionPanel({
     dataBits, stopBits, parity, flowControl
 }: ConnectionPanelProps) {
     const [ports, setPorts] = useState<string[]>([]);
-    const [baudRate, setBaudRate] = useState<number>(115200);
+    const [baudRate, setBaudRate] = useState<number>(() => {
+        const saved = localStorage.getItem('oryx_baudRate');
+        return saved ? Number(JSON.parse(saved)) : 115200;
+    });
     const [loading, setLoading] = useState(false);
     const [isBaudOpen, setIsBaudOpen] = useState(false);
     const [isPortOpen, setIsPortOpen] = useState(false);
+
+    useEffect(() => {
+        localStorage.setItem('oryx_baudRate', JSON.stringify(baudRate));
+    }, [baudRate]);
 
     const refreshPorts = async () => {
         setLoading(true);

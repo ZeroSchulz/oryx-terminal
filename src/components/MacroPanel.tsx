@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
-import { Plus, Trash2, Play, Save, X, Edit2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Plus, Trash2, Play, Save, X, Edit2, Download, Upload } from 'lucide-react';
+import { save } from '@tauri-apps/plugin-dialog';
+import { invoke } from '@tauri-apps/api/core';
 
 export interface Macro {
     id: string;
@@ -13,8 +15,24 @@ interface MacroPanelProps {
 }
 
 export function MacroPanel({ onRun }: MacroPanelProps) {
-    const [macros, setMacros] = useState<Macro[]>([]);
+    const [macros, setMacros] = useState<Macro[]>(() => {
+        const saved = localStorage.getItem('oryx_macros');
+        if (saved) {
+            try {
+                return JSON.parse(saved);
+            } catch (e) {
+                console.error("Failed to load macros", e);
+            }
+        }
+        // Defaults if nothing saved or error
+        return [
+            { id: '1', name: 'Ping', command: 'PING\\r\\n', color: 'blue' },
+            { id: '2', name: 'Version', command: 'VER?\\n', color: 'green' },
+            { id: '3', name: 'Reset', command: '\\h(AA 55 00)', color: 'red' },
+        ];
+    });
     const [isEditing, setIsEditing] = useState<string | null>(null); // ID of macro being edited, or 'new'
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Edit Form State
     const [editName, setEditName] = useState('');
@@ -22,24 +40,6 @@ export function MacroPanel({ onRun }: MacroPanelProps) {
     const [editColor, setEditColor] = useState('blue');
 
     const COLORS = ['blue', 'red', 'green', 'purple', 'orange', 'gray'];
-
-    useEffect(() => {
-        const saved = localStorage.getItem('oryx_macros');
-        if (saved) {
-            try {
-                setMacros(JSON.parse(saved));
-            } catch (e) {
-                console.error("Failed to load macros", e);
-            }
-        } else {
-            // Defaults
-            setMacros([
-                { id: '1', name: 'Ping', command: 'PING\\r\\n', color: 'blue' },
-                { id: '2', name: 'Version', command: 'VER?\\n', color: 'green' },
-                { id: '3', name: 'Reset', command: '\\h(AA 55 00)', color: 'red' },
-            ]);
-        }
-    }, []);
 
     useEffect(() => {
         localStorage.setItem('oryx_macros', JSON.stringify(macros));
@@ -68,6 +68,50 @@ export function MacroPanel({ onRun }: MacroPanelProps) {
         if (confirm('Delete this macro?')) {
             setMacros(prev => prev.filter(m => m.id !== id));
         }
+    };
+
+    const handleExport = async () => {
+        try {
+            const path = await save({
+                title: 'Save Macro List',
+                defaultPath: `oryx_macros_${new Date().toISOString().split('T')[0]}.json`,
+                filters: [{ name: 'JSON', extensions: ['json'] }]
+            });
+
+            if (path) {
+                const dataStr = JSON.stringify(macros, null, 2);
+                const bytes = new TextEncoder().encode(dataStr);
+                await invoke('write_to_file', { path, data: Array.from(bytes) });
+            }
+        } catch (error) {
+            console.error("Failed to export macros", error);
+            alert(`Failed to export macros: ${error}`);
+        }
+    };
+
+    const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const imported = JSON.parse(event.target?.result as string);
+                if (Array.isArray(imported)) {
+                    if (confirm(`Import ${imported.length} macros? This will replace your current ones.`)) {
+                        setMacros(imported);
+                    }
+                } else {
+                    alert("Invalid macro file format.");
+                }
+            } catch (error) {
+                console.error("Failed to import macros", error);
+                alert("Failed to parse macro file.");
+            }
+            // Clear input so same file can be selected again
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        };
+        reader.readAsText(file);
     };
 
     const startEdit = (m?: Macro) => {
@@ -101,9 +145,36 @@ export function MacroPanel({ onRun }: MacroPanelProps) {
         <div className="flex flex-col h-full bg-gray-50 dark:bg-[#181818] border-l border-gray-200 dark:border-[#1e1e1e] w-64 transition-colors duration-200 shadow-xl z-30">
             <div className="p-3 border-b border-gray-200 dark:border-[#1e1e1e] flex justify-between items-center bg-white dark:bg-[#2b2d31]">
                 <h3 className="font-bold text-xs uppercase tracking-wider text-gray-500">Macros</h3>
-                <button onClick={() => startEdit()} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-blue-600 dark:text-blue-400">
-                    <Plus size={16} />
-                </button>
+                <div className="flex gap-1">
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-gray-500 transition-colors"
+                        title="Import Macros"
+                    >
+                        <Upload size={16} />
+                    </button>
+                    <button
+                        onClick={handleExport}
+                        className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-gray-500 transition-colors mr-1"
+                        title="Export Macros"
+                    >
+                        <Download size={16} />
+                    </button>
+                    <button
+                        onClick={() => startEdit()}
+                        className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-blue-600 dark:text-blue-400 transition-all font-bold"
+                        title="Add Macro"
+                    >
+                        <Plus size={16} />
+                    </button>
+                </div>
+                <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleImport}
+                    accept=".json"
+                    className="hidden"
+                />
             </div>
 
             <div className="flex-grow overflow-y-auto p-2 space-y-2">
@@ -141,7 +212,7 @@ export function MacroPanel({ onRun }: MacroPanelProps) {
                 )}
 
                 {macros.map(m => (
-                    <div key={m.id} className={`group relative p-2 rounded border ${getColorClass(m.color, 'bg')} ${getColorClass(m.color, 'border')} hover:shadow-sm transition-all`}>
+                    <div key={m.id} className={`group relative p-2 rounded border ${getColorClass(m.color, 'bg')} ${getColorClass(m.color, 'border')} hover:shadow-sm transition-all shadow-blue-500/5`}>
                         <div className="flex justify-between items-start">
                             <div className="flex-grow cursor-pointer" onClick={() => onRun(m.command)}>
                                 <div className={`font-bold text-sm ${getColorClass(m.color, 'text')}`}>{m.name}</div>

@@ -15,31 +15,41 @@ interface SerialPayload {
   data: number[]; // Received as array of bytes
 }
 
+const getSaved = <T,>(key: string, fallback: T): T => {
+  const saved = localStorage.getItem(key);
+  if (saved === null) return fallback;
+  try {
+    return JSON.parse(saved) as T;
+  } catch {
+    return saved as unknown as T;
+  }
+};
+
 function App() {
   const [lines, setLines] = useState<LogEntry[]>([]);
   const [isConnected, setIsConnected] = useState(false);
-  const [autoScroll, setAutoScroll] = useState(true);
-  const [viewMode, setViewMode] = useState<'text' | 'hex' | 'bin' | 'dec' | 'oct' | 'char'>('text');
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
-  const [showMacros, setShowMacros] = useState(false);
+  const [autoScroll, setAutoScroll] = useState(getSaved('oryx_autoScroll', true));
+  const [viewMode, setViewMode] = useState<'text' | 'hex' | 'bin' | 'dec' | 'oct' | 'char'>(getSaved('oryx_viewMode', 'text'));
+  const [theme, setTheme] = useState<'dark' | 'light'>(getSaved('oryx_theme', 'dark'));
+  const [showMacros, setShowMacros] = useState(getSaved('oryx_showMacros', false));
 
-  const [breakMode, setBreakMode] = useState<'none' | 'chunk' | 'bytes' | 'beforeSequence' | 'afterSequence' | 'timeout'>('beforeSequence');
-  const [breakAfterBytesCount, setBreakAfterBytesCount] = useState(16);
-  const [breakBeforeSequenceValue, setBreakBeforeSequenceValue] = useState('');
-  const [breakAfterSequenceValue, setBreakAfterSequenceValue] = useState('');
-  const [breakAfterTimeoutMs, setBreakAfterTimeoutMs] = useState(5);
-  const [eolSequence, setEolSequence] = useState('\\n');
-  const [showEol, setShowEol] = useState(false);
-  const [showTimestamp, setShowTimestamp] = useState(true);
+  const [breakMode, setBreakMode] = useState<'none' | 'chunk' | 'bytes' | 'beforeSequence' | 'afterSequence' | 'timeout'>(getSaved('oryx_breakMode', 'beforeSequence'));
+  const [breakAfterBytesCount, setBreakAfterBytesCount] = useState(getSaved('oryx_breakAfterBytesCount', 16));
+  const [breakBeforeSequenceValue, setBreakBeforeSequenceValue] = useState(getSaved('oryx_breakBeforeSequenceValue', ''));
+  const [breakAfterSequenceValue, setBreakAfterSequenceValue] = useState(getSaved('oryx_breakAfterSequenceValue', ''));
+  const [breakAfterTimeoutMs, setBreakAfterTimeoutMs] = useState(getSaved('oryx_breakAfterTimeoutMs', 5));
+  const [eolSequence, setEolSequence] = useState(getSaved('oryx_eolSequence', '\\r\\n'));
+  const [showEol, setShowEol] = useState(getSaved('oryx_showEol', false));
+  const [showTimestamp, setShowTimestamp] = useState(getSaved('oryx_showTimestamp', true));
 
   // Smart Coloring State
   const [hasSeenAnsi, setHasSeenAnsi] = useState(false);
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [selectedPort, setSelectedPort] = useState<string>('');
+  const [selectedPort, setSelectedPort] = useState<string>(getSaved('oryx_selectedPort', ''));
 
   // Logging State
-  const [logPath, setLogPath] = useState('');
+  const [logPath, setLogPath] = useState(getSaved('oryx_logPath', ''));
   const [isLogging, setIsLogging] = useState(false);
 
   // Initialize Default Log Path
@@ -48,8 +58,12 @@ function App() {
       try {
         const docDir = await documentDir();
         const defaultPath = await join(docDir, 'ORYX_Logs', 'session_log.txt');
-        setLogPath(defaultPath);
-        logPathRef.current = defaultPath;
+        if (!logPath) {
+          setLogPath(defaultPath);
+          logPathRef.current = defaultPath;
+        } else {
+          logPathRef.current = logPath;
+        }
       } catch (e) {
         console.error("Failed to resolve default log path:", e);
         setLogPath('session_log.txt'); // Fallback
@@ -60,10 +74,10 @@ function App() {
   }, []);
 
   // Serial port configuration state
-  const [dataBits, setDataBits] = useState(8);
-  const [stopBits, setStopBits] = useState(1);
-  const [parity, setParity] = useState('None');
-  const [flowControl, setFlowControl] = useState('None');
+  const [dataBits, setDataBits] = useState(getSaved('oryx_dataBits', 8));
+  const [stopBits, setStopBits] = useState(getSaved('oryx_stopBits', 1));
+  const [parity, setParity] = useState(getSaved('oryx_parity', 'None'));
+  const [flowControl, setFlowControl] = useState(getSaved('oryx_flowControl', 'None'));
 
   // Buffers
   const bufferRef = useRef<number[]>([]);
@@ -107,7 +121,27 @@ function App() {
     } else {
       document.documentElement.classList.remove('dark');
     }
+    localStorage.setItem('oryx_theme', JSON.stringify(theme));
   }, [theme]);
+
+  // Persistence Effects
+  useEffect(() => { localStorage.setItem('oryx_autoScroll', JSON.stringify(autoScroll)); }, [autoScroll]);
+  useEffect(() => { localStorage.setItem('oryx_viewMode', JSON.stringify(viewMode)); }, [viewMode]);
+  useEffect(() => { localStorage.setItem('oryx_showMacros', JSON.stringify(showMacros)); }, [showMacros]);
+  useEffect(() => { localStorage.setItem('oryx_breakMode', JSON.stringify(breakMode)); }, [breakMode]);
+  useEffect(() => { localStorage.setItem('oryx_breakAfterBytesCount', JSON.stringify(breakAfterBytesCount)); }, [breakAfterBytesCount]);
+  useEffect(() => { localStorage.setItem('oryx_breakBeforeSequenceValue', JSON.stringify(breakBeforeSequenceValue)); }, [breakBeforeSequenceValue]);
+  useEffect(() => { localStorage.setItem('oryx_breakAfterSequenceValue', JSON.stringify(breakAfterSequenceValue)); }, [breakAfterSequenceValue]);
+  useEffect(() => { localStorage.setItem('oryx_breakAfterTimeoutMs', JSON.stringify(breakAfterTimeoutMs)); }, [breakAfterTimeoutMs]);
+  useEffect(() => { localStorage.setItem('oryx_eolSequence', JSON.stringify(eolSequence)); }, [eolSequence]);
+  useEffect(() => { localStorage.setItem('oryx_showEol', JSON.stringify(showEol)); }, [showEol]);
+  useEffect(() => { localStorage.setItem('oryx_showTimestamp', JSON.stringify(showTimestamp)); }, [showTimestamp]);
+  useEffect(() => { localStorage.setItem('oryx_selectedPort', JSON.stringify(selectedPort)); }, [selectedPort]);
+  useEffect(() => { localStorage.setItem('oryx_logPath', JSON.stringify(logPath)); }, [logPath]);
+  useEffect(() => { localStorage.setItem('oryx_dataBits', JSON.stringify(dataBits)); }, [dataBits]);
+  useEffect(() => { localStorage.setItem('oryx_stopBits', JSON.stringify(stopBits)); }, [stopBits]);
+  useEffect(() => { localStorage.setItem('oryx_parity', JSON.stringify(parity)); }, [parity]);
+  useEffect(() => { localStorage.setItem('oryx_flowControl', JSON.stringify(flowControl)); }, [flowControl]);
 
   const getTimestamp = () => {
     const now = new Date();

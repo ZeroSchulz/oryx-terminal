@@ -31,6 +31,7 @@ pub fn run() {
             serial_manager::send_data,
             serial_manager::log_to_file,
             serial_manager::get_connection_status,
+            serial_manager::write_to_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

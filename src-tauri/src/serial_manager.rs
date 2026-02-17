@@ -183,3 +183,25 @@ pub fn log_to_file(path: String, data: Vec<u8>) -> Result<(), String> {
     file.write_all(&data).map_err(|e| e.to_string())?;
     Ok(())
 }
+
+#[tauri::command]
+pub fn write_to_file(path: String, data: Vec<u8>) -> Result<(), String> {
+    use std::fs::{OpenOptions, create_dir_all};
+    use std::path::Path;
+    
+    if let Some(parent) = Path::new(&path).parent() {
+        if !parent.exists() {
+            create_dir_all(parent).map_err(|e| format!("Failed to create parent directory: {}", e))?;
+        }
+    }
+    
+    let mut file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .map_err(|e| e.to_string())?;
+        
+    file.write_all(&data).map_err(|e| e.to_string())?;
+    Ok(())
+}

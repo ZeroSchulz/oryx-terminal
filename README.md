@@ -49,11 +49,33 @@ npm install
 npm run tauri dev
 ```
 
-### Build
+### Arch Linux Native Build (PKGBUILD)
+
+For a native Arch experience, ORYX provides a `PKGBUILD` to compile directly from source and register the app with `pacman`.
+
+#### 1. Setup the Toolchain
+If you haven't used Rust on Arch before, install the version manager and initialize the stable compiler:
 ```bash
-# Build the production executable
-npm run tauri build
+sudo pacman -S rustup nodejs npm
+rustup default stable
 ```
+
+#### 2. Build and Install
+Run the standard Arch build command in the project root. This will install dependencies, compile the binary, and create a system-level desktop entry:
+```bash
+makepkg -si
+```
+
+#### 3. Linux Serial Permissions
+If the app starts but cannot detect or open COM ports, it is likely a permission issue. On Arch Linux, serial ports are owned by the `uucp` group. Add your user to this group:
+
+```bash
+sudo usermod -aG uucp $USER
+```
+**Important**: You must **log out and log back in** (or reboot) for this change to take effect.
+
+> [!TIP]
+> This method is preferred over `npm run tauri build` on Arch as it correctly handles system shared libraries (`webkit2gtk-4.1`, `libsoup3`) and provides a clean uninstallation path via `pacman -Rs`.
 
 ---
 

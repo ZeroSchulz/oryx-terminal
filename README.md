@@ -17,8 +17,11 @@
 - 🚀 **High Performance**: Virtualized terminal view capable of handling massive data streams without breaking a sweat.
 - 🛠️ **Advanced Configuration**: Granular control over Baud Rate, Data Bits, Stop Bits, Parity, and Flow Control.
 - 📟 **Smart View Modes**: Toggle between **Text**, **Char**, **Hex**, **Bin**, **Dec**, and **Oct** views on the fly.
-- 🔥 **Macro System**: Save, categorize (with color-coded badges), and execute your most used commands with a single click.
-- 📋 **Flexible Line Breaking**: Break lines based on **Timeout**, **Byte Count**, **Chunks**, or specific **Sequences** (Before/After).
+- 🔥 **Advanced Macro System**: Save, categorize, and execute commands from a resizable, color-filtered sidebar.
+- 🕒 **Command History**: Persistent history buffer with dropdown access and arrow-key navigation.
+- 💾 **Portability**: Seamlessly Import/Export macro sets via JSON for easy configuration sharing.
+- 🎯 **Direct Saving**: One-click "Save to Macro" functionality directly from your command history.
+- 📋 **Flexible Line Breaking**: Break lines based on **Timeout**, **Byte Count**, **Chunks**, or specific **Sequences**.
 - 📂 **Session Logging**: Robust logging system with automated directory management and session history.
 - ⚡ **ESC Sequences**: Full support for escaped characters and C-style strings in TX data.
 

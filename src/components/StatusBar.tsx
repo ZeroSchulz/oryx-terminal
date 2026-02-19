@@ -1,8 +1,11 @@
-import { Command, Sun, Moon, Settings as SettingsIcon, Trash2, ChevronUp } from 'lucide-react';
+import { Command, Sun, Moon, Settings as SettingsIcon, Trash2, ChevronUp, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 
 interface StatusBarProps {
     isConnected: boolean;
+    isReconnecting: boolean;
+    reconnectElapsed: number;
+    reconnectTimeout: number;
     selectedPort: string;
     dataBits: number;
     stopBits: number;
@@ -22,6 +25,9 @@ interface StatusBarProps {
 
 export function StatusBar({
     isConnected,
+    isReconnecting,
+    reconnectElapsed,
+    reconnectTimeout,
     selectedPort,
     dataBits,
     stopBits,
@@ -59,13 +65,21 @@ export function StatusBar({
             {/* Left side: Connection & Serial Config */}
             <div className="flex items-center gap-3">
                 {/* Status Pill */}
-                <div className={`flex items-center gap-2 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border transition-all ${isConnected
-                    ? 'text-green-700 dark:text-green-400 bg-green-500/10 border-green-200 dark:border-green-900/30'
-                    : 'text-gray-500 dark:text-gray-500 bg-gray-500/10 border-gray-200 dark:border-gray-800'
+                <div className={`flex items-center gap-2 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border transition-all ${isReconnecting
+                        ? 'text-amber-700 dark:text-amber-400 bg-amber-500/10 border-amber-200 dark:border-amber-900/30'
+                        : isConnected
+                            ? 'text-green-700 dark:text-green-400 bg-green-500/10 border-green-200 dark:border-green-900/30'
+                            : 'text-gray-500 dark:text-gray-500 bg-gray-500/10 border-gray-200 dark:border-gray-800'
                     }`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
-                    <span className="truncate max-w-[120px]">
-                        {isConnected ? selectedPort : 'Disconnected'}
+                    {isReconnecting
+                        ? <RefreshCw size={10} className="animate-spin text-amber-500" />
+                        : <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+                    }
+                    <span className="truncate max-w-[160px]">
+                        {isReconnecting
+                            ? `Reconnecting ${reconnectElapsed}s${reconnectTimeout > 0 ? `/${reconnectTimeout}s` : ''}...`
+                            : isConnected ? selectedPort : 'Disconnected'
+                        }
                     </span>
                 </div>
 

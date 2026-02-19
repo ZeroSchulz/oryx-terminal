@@ -4,6 +4,7 @@ import { RefreshCw, Play, Square, Settings as SettingsIcon, ChevronDown } from '
 
 interface ConnectionPanelProps {
     isConnected: boolean;
+    isReconnecting: boolean;
     onConnect: (port: string, baud: number, dataBits: number, stopBits: number, parity: string, flowControl: string) => void;
     onDisconnect: () => void;
     onOpenSettings: () => void;
@@ -19,7 +20,7 @@ interface ConnectionPanelProps {
 }
 
 export function ConnectionPanel({
-    isConnected, onConnect, onDisconnect, onOpenSettings,
+    isConnected, isReconnecting, onConnect, onDisconnect, onOpenSettings,
     selectedPort, setSelectedPort,
     dataBits, stopBits, parity, flowControl
 }: ConnectionPanelProps) {
@@ -66,8 +67,8 @@ export function ConnectionPanel({
                     <div className="relative">
                         {/* Trigger Box (Matches Baud Rate Input) */}
                         <div
-                            onClick={() => !isConnected && setIsPortOpen(!isPortOpen)}
-                            className={`w-full bg-white dark:bg-[#1a1c20] border border-gray-300 dark:border-gray-700 rounded-lg pl-4 pr-12 py-2.5 text-sm font-bold text-gray-900 dark:text-white cursor-pointer min-w-[200px] shadow-sm hover:border-gray-400 dark:hover:border-gray-600 transition-all ${isConnected ? 'opacity-60 cursor-not-allowed' : ''} flex items-center h-[42px]`}
+                            onClick={() => !(isConnected || isReconnecting) && setIsPortOpen(!isPortOpen)}
+                            className={`w-full bg-white dark:bg-[#1a1c20] border border-gray-300 dark:border-gray-700 rounded-lg pl-4 pr-12 py-2.5 text-sm font-bold text-gray-900 dark:text-white cursor-pointer min-w-[200px] shadow-sm hover:border-gray-400 dark:hover:border-gray-600 transition-all ${(isConnected || isReconnecting) ? 'opacity-60 cursor-not-allowed' : ''} flex items-center h-[42px]`}
                         >
                             {selectedPort || <span className="text-gray-400 font-normal">Select Port...</span>}
                         </div>
@@ -78,7 +79,7 @@ export function ConnectionPanel({
                                 e.stopPropagation();
                                 refreshPorts();
                             }}
-                            disabled={isConnected || loading}
+                            disabled={isConnected || isReconnecting || loading}
                             className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 hover:bg-gray-100 dark:hover:bg-white/10 rounded-md transition-all text-gray-500 hover:text-blue-600 dark:text-gray-400 disabled:opacity-30 z-10"
                             title="Refresh Ports"
                         >
@@ -86,7 +87,7 @@ export function ConnectionPanel({
                         </button>
 
                         {/* Dropdown Menu */}
-                        {isPortOpen && !isConnected && (
+                        {isPortOpen && !(isConnected || isReconnecting) && (
                             <>
                                 <div
                                     className="fixed inset-0 z-40"
@@ -123,14 +124,14 @@ export function ConnectionPanel({
                             type="number"
                             value={baudRate}
                             onChange={(e) => setBaudRate(Number(e.target.value))}
-                            disabled={isConnected}
+                            disabled={isConnected || isReconnecting}
                             className="w-[140px] bg-white dark:bg-[#1a1c20] border border-gray-300 dark:border-gray-700 rounded-lg pl-4 pr-8 py-2.5 text-sm font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all shadow-sm hover:border-gray-400 dark:hover:border-gray-600 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
 
                         {/* Dropdown Toggle */}
                         <button
-                            onClick={() => !isConnected && setIsBaudOpen(!isBaudOpen)}
-                            disabled={isConnected}
+                            onClick={() => !(isConnected || isReconnecting) && setIsBaudOpen(!isBaudOpen)}
+                            disabled={isConnected || isReconnecting}
                             className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 dark:text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-white/10 rounded-md transition-all cursor-pointer disabled:opacity-50"
                         >
                             <ChevronDown size={14} />
@@ -175,16 +176,25 @@ export function ConnectionPanel({
                 </button>
 
                 <button
-                    onClick={() => isConnected ? onDisconnect() : onConnect(selectedPort, baudRate, dataBits, stopBits, parity, flowControl)}
-                    disabled={!selectedPort && !isConnected}
-                    className={`relative flex items-center gap-3 px-6 py-2.5 rounded-xl font-bold text-sm shadow-lg transition-all transform active:scale-95 overflow-hidden group/btn ${isConnected
-                        ? "bg-red-500 hover:bg-red-600 text-white shadow-red-500/20"
-                        : "bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/20 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed"
+                    onClick={() => (isConnected || isReconnecting) ? onDisconnect() : onConnect(selectedPort, baudRate, dataBits, stopBits, parity, flowControl)}
+                    disabled={!selectedPort && !isConnected && !isReconnecting}
+                    className={`relative flex items-center gap-3 px-6 py-2.5 rounded-xl font-bold text-sm shadow-lg transition-all transform active:scale-95 overflow-hidden group/btn ${isReconnecting
+                            ? "bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/20"
+                            : isConnected
+                                ? "bg-red-500 hover:bg-red-600 text-white shadow-red-500/20"
+                                : "bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/20 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed"
                         }`}
                 >
                     <div className="absolute inset-0 bg-white/10 translate-y-full group-hover/btn:translate-y-0 transition-transform duration-300" />
-                    {isConnected ? <Square size={16} fill="white" strokeWidth={0} /> : <Play size={16} fill="white" strokeWidth={0} />}
-                    <span className="relative">{isConnected ? 'Disconnect' : 'Connect'}</span>
+                    {isReconnecting
+                        ? <RefreshCw size={16} className="animate-spin" />
+                        : isConnected
+                            ? <Square size={16} fill="white" strokeWidth={0} />
+                            : <Play size={16} fill="white" strokeWidth={0} />
+                    }
+                    <span className="relative">
+                        {isReconnecting ? 'Stop Reconnecting' : isConnected ? 'Disconnect' : 'Connect'}
+                    </span>
                 </button>
             </div>
         </div>

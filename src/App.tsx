@@ -28,10 +28,18 @@ const getSaved = <T,>(key: string, fallback: T): T => {
 function App() {
   const [lines, setLines] = useState<LogEntry[]>([]);
   const [isConnected, setIsConnected] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const [reconnectElapsed, setReconnectElapsed] = useState(0);
   const [autoScroll, setAutoScroll] = useState(getSaved('oryx_autoScroll', true));
   const [viewMode, setViewMode] = useState<'text' | 'hex' | 'bin' | 'dec' | 'oct' | 'char'>(getSaved('oryx_viewMode', 'text'));
   const [theme, setTheme] = useState<'dark' | 'light'>(getSaved('oryx_theme', 'dark'));
   const [showMacros, setShowMacros] = useState(getSaved('oryx_showMacros', false));
+  const [macroWidth, setMacroWidth] = useState(getSaved('oryx_macroWidth', 256));
+  const [isResizing, setIsResizing] = useState(false);
+
+  // Auto-reconnect settings
+  const [autoReconnect, setAutoReconnect] = useState(getSaved('oryx_autoReconnect', true));
+  const [reconnectTimeoutSec, setReconnectTimeoutSec] = useState(getSaved('oryx_reconnectTimeoutSec', 0)); // 0 = indefinite
 
   const [breakMode, setBreakMode] = useState<'none' | 'chunk' | 'bytes' | 'beforeSequence' | 'afterSequence' | 'timeout'>(getSaved('oryx_breakMode', 'beforeSequence'));
   const [breakAfterBytesCount, setBreakAfterBytesCount] = useState(getSaved('oryx_breakAfterBytesCount', 16));
@@ -89,6 +97,12 @@ function App() {
   const logPathRef = useRef('session_log.txt');
   const lastReceiveTime = useRef<number>(0);
 
+  // Reconnect refs (display only — actual reconnect runs in Rust)
+  const reconnectElapsedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reconnectStartTimeRef = useRef<number>(0);
+  const autoReconnectRef = useRef(true);
+  const reconnectTimeoutSecRef = useRef(0);
+
   // Line breaking refs
   const breakModeRef = useRef<'none' | 'chunk' | 'bytes' | 'beforeSequence' | 'afterSequence' | 'timeout'>('beforeSequence');
   const breakAfterBytesCountRef = useRef(16);
@@ -142,6 +156,27 @@ function App() {
   useEffect(() => { localStorage.setItem('oryx_stopBits', JSON.stringify(stopBits)); }, [stopBits]);
   useEffect(() => { localStorage.setItem('oryx_parity', JSON.stringify(parity)); }, [parity]);
   useEffect(() => { localStorage.setItem('oryx_flowControl', JSON.stringify(flowControl)); }, [flowControl]);
+  useEffect(() => { localStorage.setItem('oryx_autoReconnect', JSON.stringify(autoReconnect)); autoReconnectRef.current = autoReconnect; }, [autoReconnect]);
+  useEffect(() => { localStorage.setItem('oryx_reconnectTimeoutSec', JSON.stringify(reconnectTimeoutSec)); reconnectTimeoutSecRef.current = reconnectTimeoutSec; }, [reconnectTimeoutSec]);
+  useEffect(() => { localStorage.setItem('oryx_macroWidth', JSON.stringify(macroWidth)); }, [macroWidth]);
+
+  useEffect(() => {
+    if (isResizing) {
+      const handleMouseMove = (e: MouseEvent) => {
+        const newWidth = Math.max(200, Math.min(window.innerWidth - 300, window.innerWidth - e.clientX));
+        setMacroWidth(newWidth);
+      };
+      const handleMouseUp = () => {
+        setIsResizing(false);
+      };
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isResizing]);
 
   const getTimestamp = () => {
     const now = new Date();
@@ -182,6 +217,52 @@ function App() {
       lastReceiveTime.current = Date.now();
     });
 
+    // Listen for unexpected disconnect → Rust starts 200ms reconnect loop automatically
+    const unlistenDisconnect = listen('serial-disconnected', () => {
+      setIsConnected(false);
+      setHasSeenAnsi(false);
+      addLog('[DISCONNECTED] Port unexpectedly closed.', 'error');
+
+      if (!autoReconnectRef.current) {
+        // User has auto-reconnect disabled — tell Rust to stop its reconnect thread
+        invoke('close_port').catch(() => { });
+        return;
+      }
+
+      // Start display timer (visual only — Rust does the actual reconnecting)
+      setIsReconnecting(true);
+      reconnectStartTimeRef.current = Date.now();
+      setReconnectElapsed(0);
+      addLog('[RECONNECT] Reconnecting automatically...', 'system');
+
+      reconnectElapsedIntervalRef.current = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - reconnectStartTimeRef.current) / 1000);
+        setReconnectElapsed(elapsed);
+
+        // Handle timeout: abort Rust reconnect via close_port
+        if (reconnectTimeoutSecRef.current > 0 && elapsed >= reconnectTimeoutSecRef.current) {
+          clearInterval(reconnectElapsedIntervalRef.current!);
+          reconnectElapsedIntervalRef.current = null;
+          setIsReconnecting(false);
+          setReconnectElapsed(0);
+          invoke('close_port').catch(() => { });
+          addLog(`[RECONNECT FAILED] Timed out after ${reconnectTimeoutSecRef.current}s.`, 'error');
+        }
+      }, 1000);
+    });
+
+    // Listen for successful Rust reconnect
+    const unlistenReconnected = listen('serial-reconnected', () => {
+      if (reconnectElapsedIntervalRef.current) {
+        clearInterval(reconnectElapsedIntervalRef.current);
+        reconnectElapsedIntervalRef.current = null;
+      }
+      setIsReconnecting(false);
+      setReconnectElapsed(0);
+      setIsConnected(true);
+      addLog('[RECONNECTED] Successfully reconnected.', 'system');
+    });
+
     // Sync Connection Status on Mount
     const syncConnection = async () => {
       try {
@@ -196,6 +277,12 @@ function App() {
       }
     };
     syncConnection();
+
+    // Listen for Save to Macro requests
+    const handleSaveToMacro = () => {
+      setShowMacros(true);
+    };
+    window.addEventListener('oryx-add-macro', handleSaveToMacro);
 
     const interval = setInterval(() => {
       const now = Date.now();
@@ -222,6 +309,9 @@ function App() {
 
     return () => {
       unlisten.then(f => f());
+      unlistenDisconnect.then(f => f());
+      unlistenReconnected.then(f => f());
+      window.removeEventListener('oryx-add-macro', handleSaveToMacro);
       clearInterval(interval);
     };
   }, []); // hasSeenAnsi dependency added implicitly by addLog closure, but addLog handles it? No, addLog is a closure.
@@ -416,10 +506,17 @@ function App() {
   };
 
   const handleDisconnect = async () => {
+    // Stop display timer (Rust close_port also kills the reconnect thread)
+    if (reconnectElapsedIntervalRef.current) {
+      clearInterval(reconnectElapsedIntervalRef.current);
+      reconnectElapsedIntervalRef.current = null;
+    }
+    setIsReconnecting(false);
+    setReconnectElapsed(0);
     try {
       await invoke('close_port');
       setIsConnected(false);
-      setHasSeenAnsi(false); // Session ended
+      setHasSeenAnsi(false);
       addLog(`Disconnected.`, 'system');
     } catch (e) {
       console.error(e);
@@ -468,6 +565,7 @@ function App() {
     <div className="flex flex-col h-screen w-screen bg-gray-100 dark:bg-[#1e1e1e] transition-colors duration-200 overflow-hidden">
       <ConnectionPanel
         isConnected={isConnected}
+        isReconnecting={isReconnecting}
         onConnect={handleConnect}
         onDisconnect={handleDisconnect}
         onOpenSettings={() => setIsSettingsOpen(true)}
@@ -499,8 +597,18 @@ function App() {
 
         {/* Macro Sidebar */}
         {showMacros && (
-          <div className="animate-slide-in-right h-full border-l border-gray-200 dark:border-[#303339]">
-            <MacroPanel onRun={handleMacroRun} />
+          <div
+            className="flex relative h-full bg-gray-50 dark:bg-[#181818]"
+            style={{ width: `${macroWidth}px` }}
+          >
+            {/* Resize Handle */}
+            <div
+              className={`absolute left-0 top-0 bottom-0 w-1 cursor-col-resize z-[40] transition-colors hover:bg-blue-500/50 ${isResizing ? 'bg-blue-600' : ''}`}
+              onMouseDown={() => setIsResizing(true)}
+            />
+            <div className="flex-grow min-w-0">
+              <MacroPanel onRun={handleMacroRun} />
+            </div>
           </div>
         )}
       </div>
@@ -514,6 +622,9 @@ function App() {
 
       <StatusBar
         isConnected={isConnected}
+        isReconnecting={isReconnecting}
+        reconnectElapsed={reconnectElapsed}
+        reconnectTimeout={reconnectTimeoutSec}
         selectedPort={selectedPort}
         dataBits={dataBits}
         stopBits={stopBits}
@@ -567,6 +678,10 @@ function App() {
         isLogging={isLogging}
         setIsLogging={setIsLogging}
         onBrowseLogPath={handleLogPathBrowse}
+        autoReconnect={autoReconnect}
+        setAutoReconnect={setAutoReconnect}
+        reconnectTimeoutSec={reconnectTimeoutSec}
+        setReconnectTimeoutSec={setReconnectTimeoutSec}
       />
     </div>
   );

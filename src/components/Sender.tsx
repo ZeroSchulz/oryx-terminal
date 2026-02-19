@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Send, Terminal, ChevronDown } from 'lucide-react';
+import { Send, Terminal, ChevronDown, Clock, X, BookmarkPlus } from 'lucide-react';
 import clsx from 'clsx';
 
 interface SenderProps {
@@ -181,9 +181,33 @@ function SenderDropdown({ label, value, options, onChange }: SenderDropdownProps
     );
 }
 
+const HISTORY_MAX = 100;
+const HISTORY_KEY = 'oryx_sendHistory';
+
+function loadHistory(): string[] {
+    try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch { return []; }
+}
+function saveHistory(h: string[]) {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(h));
+}
+
 export function Sender({ isConnected, onSend }: SenderProps) {
     const [input, setInput] = useState('');
     const [lineEnding, setLineEnding] = useState<'None' | 'CR' | 'LF' | 'CRLF'>('CRLF');
+
+    // History state
+    const historyRef = useRef<string[]>(loadHistory());
+    const historyIndexRef = useRef<number>(-1); // -1 = not browsing
+    const draftRef = useRef<string>('');         // saved draft while browsing
+
+    const pushHistory = (text: string) => {
+        const h = historyRef.current;
+        // Don't add duplicate of last entry
+        if (h[0] === text) return;
+        const next = [text, ...h].slice(0, HISTORY_MAX);
+        historyRef.current = next;
+        saveHistory(next);
+    };
 
     const handleSend = async () => {
         if (!isConnected || !input) return;
@@ -197,11 +221,11 @@ export function Sender({ isConnected, onSend }: SenderProps) {
         if (lineEnding === 'CRLF') { dataBytes.push(13); dataBytes.push(10); }
 
         try {
-            // Send as number array (which Tauri/Serde serializes to Vec<u8>)
             await invoke('send_data', { data: dataBytes });
-
-            // Log with raw data
             onSend?.(input, dataBytes);
+            pushHistory(input);
+            historyIndexRef.current = -1;
+            draftRef.current = '';
             setInput('');
         } catch (e) {
             console.error('Failed to send:', e);
@@ -212,7 +236,53 @@ export function Sender({ isConnected, onSend }: SenderProps) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             handleSend();
+            return;
         }
+
+        const h = historyRef.current;
+        if (h.length === 0) return;
+
+        if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (historyIndexRef.current === -1) {
+                // Save current draft before browsing
+                draftRef.current = input;
+            }
+            const next = Math.min(historyIndexRef.current + 1, h.length - 1);
+            historyIndexRef.current = next;
+            setInput(h[next]);
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (historyIndexRef.current <= 0) {
+                // Back to draft
+                historyIndexRef.current = -1;
+                setInput(draftRef.current);
+            } else {
+                const next = historyIndexRef.current - 1;
+                historyIndexRef.current = next;
+                setInput(h[next]);
+            }
+        } else if (e.key === 'Escape') {
+            historyIndexRef.current = -1;
+            setInput(draftRef.current);
+        }
+    };
+
+    const isBrowsingHistory = historyIndexRef.current !== -1;
+    const [historyOpen, setHistoryOpen] = useState(false);
+
+    const selectHistoryEntry = (entry: string) => {
+        historyIndexRef.current = -1;
+        draftRef.current = '';
+        setInput(entry);
+        setHistoryOpen(false);
+    };
+
+    const clearHistory = () => {
+        historyRef.current = [];
+        saveHistory([]);
+        historyIndexRef.current = -1;
+        setHistoryOpen(false);
     };
 
     return (
@@ -229,23 +299,103 @@ export function Sender({ isConnected, onSend }: SenderProps) {
                 onChange={setLineEnding}
             />
 
-            <div className="flex-grow relative flex flex-col">
-                <label className="text-[8px] uppercase font-bold text-gray-500 tracking-wider mb-0.5 ml-1">Data / Command</label>
+            <div className="flex-grow min-w-0 relative flex flex-col group/input">
+                <label className="text-[8px] uppercase font-bold text-gray-500 tracking-wider mb-0.5 ml-1">
+                    Data / Command
+                    {historyRef.current.length > 0 && (
+                        <span className="ml-2 normal-case text-[8px] font-normal italic">
+                            {isBrowsingHistory
+                                ? <span className="text-amber-500">&#8593;&#8595; history ({historyIndexRef.current + 1}/{historyRef.current.length})</span>
+                                : <span className="text-gray-400 dark:text-gray-500">&#8593;&#8595; history</span>
+                            }
+                        </span>
+                    )}
+                </label>
                 <div className="relative w-full">
+                    <div className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-600 pointer-events-none">
+                        <Terminal size={13} />
+                    </div>
                     <input
                         type="text"
                         value={input}
-                        onChange={(e) => setInput(e.target.value)}
+                        onChange={(e) => { historyIndexRef.current = -1; setInput(e.target.value); }}
                         onKeyDown={handleKeyDown}
                         disabled={!isConnected}
-                        placeholder={isConnected ? "Try: \\h(48 69) or 0x4F or 0b1010" : "Connect to send"}
-                        className="w-full bg-gray-100 dark:bg-[#151515] border border-gray-300 dark:border-gray-600 rounded px-4 py-2 text-sm text-gray-800 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed font-mono shadow-inner transition-all pr-8"
+                        placeholder={isConnected ? "Try: \\h(48 69) or 0x4F" : "Connect to send"}
+                        className={clsx(
+                            "w-full bg-gray-100 dark:bg-[#151515] border rounded pl-8 py-2 text-sm text-gray-800 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-600 focus:outline-none focus:ring-1 disabled:opacity-50 disabled:cursor-not-allowed font-mono shadow-inner transition-all",
+                            historyRef.current.length > 0 ? "pr-14" : "pr-4",
+                            isBrowsingHistory
+                                ? "border-amber-400 dark:border-amber-600 focus:border-amber-400 focus:ring-amber-400"
+                                : "border-gray-300 dark:border-gray-600 focus:border-blue-500 focus:ring-blue-500"
+                        )}
                     />
-                    <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-600 pointer-events-none">
-                        <Terminal size={14} />
-                    </div>
+
+                    {/* Integrated History Dropdown Button */}
+                    {historyRef.current.length > 0 && (
+                        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center h-[28px] border-l border-gray-300 dark:border-gray-700 pl-1">
+                            <button
+                                type="button"
+                                onClick={() => setHistoryOpen(!historyOpen)}
+                                className={clsx(
+                                    "flex items-center gap-0.5 px-1.5 py-1 rounded transition-all hover:bg-gray-200 dark:hover:bg-white/10",
+                                    historyOpen
+                                        ? "text-amber-500 bg-amber-500/5"
+                                        : "text-gray-400 dark:text-gray-500"
+                                )}
+                                title="Show search history"
+                            >
+                                <Clock size={13} />
+                                <ChevronDown size={12} className={clsx("transition-transform duration-200", historyOpen && "rotate-180")} />
+                            </button>
+                        </div>
+                    )}
+
+                    {/* History Dropdown List */}
+                    {historyOpen && historyRef.current.length > 0 && (
+                        <>
+                            <div className="fixed inset-0 z-40" onClick={() => setHistoryOpen(false)} />
+                            <div className="absolute bottom-full left-0 w-full mb-1 bg-white dark:bg-[#1a1c20] border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden animasi-fade-in">
+                                <ul className="max-h-64 overflow-y-auto py-1 custom-scrollbar">
+                                    {historyRef.current.map((entry, i) => (
+                                        <li
+                                            key={i}
+                                            className={clsx(
+                                                "group/item flex items-center justify-between px-3 py-2 text-xs font-mono cursor-pointer transition-colors border-l-2",
+                                                i === historyIndexRef.current
+                                                    ? "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border-amber-500"
+                                                    : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 border-transparent"
+                                            )}
+                                        >
+                                            <span className="truncate flex-grow" onClick={() => selectHistoryEntry(entry)}>{entry}</span>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    window.dispatchEvent(new CustomEvent('oryx-add-macro', { detail: { command: entry } }));
+                                                    setHistoryOpen(false);
+                                                }}
+                                                className="opacity-0 group-hover/item:opacity-100 p-1 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-600 dark:text-blue-400 rounded transition-all"
+                                                title="Save as macro"
+                                            >
+                                                <BookmarkPlus size={14} />
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                                <div className="border-t border-gray-100 dark:border-gray-800 px-3 py-1.5 flex justify-between items-center bg-gray-50/50 dark:bg-white/5">
+                                    <span className="text-[9px] text-gray-500 font-bold uppercase tracking-tighter">{historyRef.current.length} items</span>
+                                    <button
+                                        onClick={clearHistory}
+                                        className="flex items-center gap-1.5 text-[10px] text-red-400 hover:text-red-500 transition-colors font-bold uppercase"
+                                    >
+                                        <X size={11} /> Clear
+                                    </button>
+                                </div>
+                            </div>
+                        </>
+                    )}
                 </div>
-                <div className="absolute right-0 -bottom-5 text-[9px] text-gray-400 dark:text-gray-500 hidden group-hover:block whitespace-nowrap">
+                <div className="absolute right-0 -bottom-5 text-[9px] text-gray-400 dark:text-gray-500 opacity-0 group-hover/input:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
                     Supports: \h(4F), \d(10), \b(01), 0x..., 0b..., \r, \n
                 </div>
             </div>

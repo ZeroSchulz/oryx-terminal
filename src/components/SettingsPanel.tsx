@@ -102,6 +102,12 @@ interface SettingsPanelProps {
     isLogging: boolean;
     setIsLogging: (logging: boolean) => void;
     onBrowseLogPath?: () => void;
+
+    // Auto-reconnect
+    autoReconnect: boolean;
+    setAutoReconnect: (v: boolean) => void;
+    reconnectTimeoutSec: number;
+    setReconnectTimeoutSec: (v: number) => void;
 }
 
 export function SettingsPanel({
@@ -135,7 +141,11 @@ export function SettingsPanel({
     setLogPath,
     isLogging,
     setIsLogging,
-    onBrowseLogPath
+    onBrowseLogPath,
+    autoReconnect,
+    setAutoReconnect,
+    reconnectTimeoutSec,
+    setReconnectTimeoutSec,
 }: SettingsPanelProps) {
     if (!isOpen) return null;
 
@@ -514,6 +524,45 @@ export function SettingsPanel({
                             >
                                 {isLogging ? '● LOGGING IN PROGRESS' : '○ START LOGGING'}
                             </button>
+                        </div>
+                    </section>
+
+                    {/* Connection / Auto-Reconnect */}
+                    <section>
+                        <h3 className="text-sm font-bold uppercase text-gray-500 dark:text-gray-400 mb-4 tracking-wider">Connection</h3>
+                        <div className="space-y-4">
+                            <label className="flex items-center gap-3 group cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={autoReconnect}
+                                    onChange={(e) => setAutoReconnect(e.target.checked)}
+                                    className="w-4 h-4 rounded-md border-gray-300 text-amber-500 focus:ring-amber-500 dark:bg-[#1a1c20] dark:border-[#40444b] transition-all"
+                                />
+                                <div className="flex flex-col">
+                                    <span className="text-xs font-bold text-gray-700 dark:text-gray-200 group-hover:text-amber-500 transition-colors">Auto-Reconnect</span>
+                                    <span className="text-[10px] text-gray-400 dark:text-gray-500 italic">Automatically reconnect if port disconnects unexpectedly</span>
+                                </div>
+                            </label>
+
+                            {autoReconnect && (
+                                <div className="ml-7 space-y-3 animasi-fade-in">
+                                    <SettingsDropdown
+                                        label="Max Timeout"
+                                        value={reconnectTimeoutSec}
+                                        options={[
+                                            { label: 'Indefinitely', value: 0 },
+                                            { label: '30 seconds', value: 30 },
+                                            { label: '1 minute', value: 60 },
+                                            { label: '2 minutes', value: 120 },
+                                            { label: '5 minutes', value: 300 },
+                                        ]}
+                                        onChange={setReconnectTimeoutSec}
+                                    />
+                                    <p className="text-[10px] text-gray-400 dark:text-gray-500 italic pl-1">
+                                        Reconnects at ~200ms intervals via Rust (fast, low CPU)
+                                    </p>
+                                </div>
+                            )}
                         </div>
                     </section>
                 </div>

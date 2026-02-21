@@ -1,98 +1,63 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { documentDir, join } from '@tauri-apps/api/path';
-import { save } from '@tauri-apps/plugin-dialog';
 import { ConnectionPanel } from './components/ConnectionPanel';
 import { StatusBar } from './components/StatusBar';
 import { SettingsPanel } from './components/SettingsPanel';
 import { Terminal, LogEntry } from './components/Terminal';
 import { Sender, parseInput } from './components/Sender';
 import { MacroPanel } from './components/MacroPanel';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { HelpOverlay } from './components/HelpOverlay';
+import { useSettings } from './contexts/SettingsContext';
 import './App.css';
 
 interface SerialPayload {
-  data: number[]; // Received as array of bytes
+  data: number[];
 }
 
-const getSaved = <T,>(key: string, fallback: T): T => {
-  const saved = localStorage.getItem(key);
-  if (saved === null) return fallback;
-  try {
-    return JSON.parse(saved) as T;
-  } catch {
-    return saved as unknown as T;
-  }
+// ─── Module-level pure helpers ────────────────────────────────────────────────
+
+const generateId = () =>
+  Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+
+const getTimestamp = () => {
+  const now = new Date();
+  return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}.${now.getMilliseconds().toString().padStart(3, '0')}`;
 };
 
+const MAX_LINES = 10_000;
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function App() {
+  const {
+    viewMode, autoScroll, setAutoScroll, showMacros, setShowMacros,
+    macroWidth, setMacroWidth, showTimestamp, setShowTimestamp,
+    showEol, eolSequence, breakMode, breakAfterBytesCount,
+    breakBeforeSequenceValue, breakAfterSequenceValue, breakAfterTimeoutMs,
+    dataBits, stopBits, parity, flowControl,
+    setSelectedPort, logPath, setLogPath,
+    isLogging, setIsLogging, autoReconnect, reconnectTimeoutSec,
+  } = useSettings();
+
   const [lines, setLines] = useState<LogEntry[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectElapsed, setReconnectElapsed] = useState(0);
-  const [autoScroll, setAutoScroll] = useState(getSaved('oryx_autoScroll', true));
-  const [viewMode, setViewMode] = useState<'text' | 'hex' | 'bin' | 'dec' | 'oct' | 'char'>(getSaved('oryx_viewMode', 'text'));
-  const [theme, setTheme] = useState<'dark' | 'light'>(getSaved('oryx_theme', 'dark'));
-  const [showMacros, setShowMacros] = useState(getSaved('oryx_showMacros', false));
-  const [macroWidth, setMacroWidth] = useState(getSaved('oryx_macroWidth', 256));
   const [isResizing, setIsResizing] = useState(false);
-
-  // Auto-reconnect settings
-  const [autoReconnect, setAutoReconnect] = useState(getSaved('oryx_autoReconnect', true));
-  const [reconnectTimeoutSec, setReconnectTimeoutSec] = useState(getSaved('oryx_reconnectTimeoutSec', 0)); // 0 = indefinite
-
-  const [breakMode, setBreakMode] = useState<'none' | 'chunk' | 'bytes' | 'beforeSequence' | 'afterSequence' | 'timeout'>(getSaved('oryx_breakMode', 'beforeSequence'));
-  const [breakAfterBytesCount, setBreakAfterBytesCount] = useState(getSaved('oryx_breakAfterBytesCount', 16));
-  const [breakBeforeSequenceValue, setBreakBeforeSequenceValue] = useState(getSaved('oryx_breakBeforeSequenceValue', ''));
-  const [breakAfterSequenceValue, setBreakAfterSequenceValue] = useState(getSaved('oryx_breakAfterSequenceValue', ''));
-  const [breakAfterTimeoutMs, setBreakAfterTimeoutMs] = useState(getSaved('oryx_breakAfterTimeoutMs', 5));
-  const [eolSequence, setEolSequence] = useState(getSaved('oryx_eolSequence', '\\r\\n'));
-  const [showEol, setShowEol] = useState(getSaved('oryx_showEol', false));
-  const [showTimestamp, setShowTimestamp] = useState(getSaved('oryx_showTimestamp', true));
-
-  // Smart Coloring State
   const [hasSeenAnsi, setHasSeenAnsi] = useState(false);
-
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [selectedPort, setSelectedPort] = useState<string>(getSaved('oryx_selectedPort', ''));
-
-  // Logging State
-  const [logPath, setLogPath] = useState(getSaved('oryx_logPath', ''));
-  const [isLogging, setIsLogging] = useState(false);
-
-  // Initialize Default Log Path
-  useEffect(() => {
-    const initLogPath = async () => {
-      try {
-        const docDir = await documentDir();
-        const defaultPath = await join(docDir, 'ORYX_Logs', 'session_log.txt');
-        if (!logPath) {
-          setLogPath(defaultPath);
-          logPathRef.current = defaultPath;
-        } else {
-          logPathRef.current = logPath;
-        }
-      } catch (e) {
-        console.error("Failed to resolve default log path:", e);
-        setLogPath('session_log.txt'); // Fallback
-        logPathRef.current = 'session_log.txt';
-      }
-    };
-    initLogPath();
-  }, []);
-
-  // Serial port configuration state
-  const [dataBits, setDataBits] = useState(getSaved('oryx_dataBits', 8));
-  const [stopBits, setStopBits] = useState(getSaved('oryx_stopBits', 1));
-  const [parity, setParity] = useState(getSaved('oryx_parity', 'None'));
-  const [flowControl, setFlowControl] = useState(getSaved('oryx_flowControl', 'None'));
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
 
   // Buffers
   const bufferRef = useRef<number[]>([]);
   const lastFlushTime = useRef<number>(0);
-  const viewModeRef = useRef<'text' | 'hex' | 'bin' | 'dec' | 'oct' | 'char'>('text');
+  const flushInProgressRef = useRef(false);
+  const viewModeRef = useRef(viewMode);
 
-  // Refs for logging and line breaking logic
+  // Refs for logging and line breaking (hot-path access avoids stale closures)
   const isLoggingRef = useRef(false);
   const logPathRef = useRef('session_log.txt');
   const lastReceiveTime = useRef<number>(0);
@@ -100,18 +65,35 @@ function App() {
   // Reconnect refs (display only — actual reconnect runs in Rust)
   const reconnectElapsedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectStartTimeRef = useRef<number>(0);
-  const autoReconnectRef = useRef(true);
-  const reconnectTimeoutSecRef = useRef(0);
+  const autoReconnectRef = useRef(autoReconnect);
+  const reconnectTimeoutSecRef = useRef(reconnectTimeoutSec);
 
   // Line breaking refs
-  const breakModeRef = useRef<'none' | 'chunk' | 'bytes' | 'beforeSequence' | 'afterSequence' | 'timeout'>('beforeSequence');
-  const breakAfterBytesCountRef = useRef(16);
-  const breakBeforeSequenceValueRef = useRef('');
-  const breakAfterSequenceValueRef = useRef('');
-  const breakAfterTimeoutMsRef = useRef(5);
-  const eolSequenceRef = useRef('\\n');
-  const showEolRef = useRef(false);
+  const breakModeRef = useRef(breakMode);
+  const breakAfterBytesCountRef = useRef(breakAfterBytesCount);
+  const breakBeforeSequenceValueRef = useRef(breakBeforeSequenceValue);
+  const breakAfterSequenceValueRef = useRef(breakAfterSequenceValue);
+  const breakAfterTimeoutMsRef = useRef(breakAfterTimeoutMs);
+  const eolSequenceRef = useRef(eolSequence);
+  const showEolRef = useRef(showEol);
 
+  // ─── Initialize default log path when none is saved ───────────────────────
+  useEffect(() => {
+    if (logPath) return;
+    const init = async () => {
+      try {
+        const docDir = await documentDir();
+        const defaultPath = await join(docDir, 'ORYX_Logs', 'session_log.txt');
+        setLogPath(defaultPath);
+      } catch (e) {
+        console.error('Failed to resolve default log path:', e);
+        setLogPath('session_log.txt');
+      }
+    };
+    init();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Sync context values → hot-path refs ──────────────────────────────────
   useEffect(() => {
     viewModeRef.current = viewMode;
   }, [viewMode]);
@@ -126,110 +108,206 @@ function App() {
     breakAfterTimeoutMsRef.current = breakAfterTimeoutMs;
     eolSequenceRef.current = eolSequence;
     showEolRef.current = showEol;
-  }, [isLogging, logPath, breakMode, breakAfterBytesCount, breakBeforeSequenceValue, breakAfterSequenceValue, breakAfterTimeoutMs, eolSequence, showEol]);
+    autoReconnectRef.current = autoReconnect;
+    reconnectTimeoutSecRef.current = reconnectTimeoutSec;
+  }, [isLogging, logPath, breakMode, breakAfterBytesCount, breakBeforeSequenceValue, breakAfterSequenceValue, breakAfterTimeoutMs, eolSequence, showEol, autoReconnect, reconnectTimeoutSec]);
 
-  // Handle Theme Change
+  // ─── Macro panel resize drag ───────────────────────────────────────────────
   useEffect(() => {
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+    if (!isResizing) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      const newWidth = Math.max(200, Math.min(window.innerWidth - 300, window.innerWidth - e.clientX));
+      setMacroWidth(newWidth);
+    };
+    const handleMouseUp = () => setIsResizing(false);
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, setMacroWidth]);
+
+  const addLog = useCallback((text: string, type: LogEntry['type'], originalData?: number[]) => {
+    if (text.includes('\x1b')) setHasSeenAnsi(true);
+    setLines(prev => {
+      const next = [...prev, { id: generateId(), timestamp: getTimestamp(), type, text, originalData }];
+      return next.length > MAX_LINES ? next.slice(next.length - MAX_LINES) : next;
+    });
+  }, []);
+
+  // ─── Buffer flush ─────────────────────────────────────────────────────────
+  // useCallback with stable deps (all reads go through refs) prevents stale closures
+  // and ensures the setInterval always calls the same function reference.
+  const flushBuffer = useCallback(async (force: boolean = false) => {
+    if (bufferRef.current.length === 0) return;
+
+    // Guard: prevent concurrent async flushes (e.g. when log_to_file awaits > 16ms)
+    if (flushInProgressRef.current) return;
+    flushInProgressRef.current = true;
+
+    try {
+      const data = Uint8Array.from(bufferRef.current);
+      lastFlushTime.current = Date.now();
+
+      const breakPoints: number[] = [];
+      const currentViewMode = viewModeRef.current;
+
+      if (currentViewMode === 'text') {
+        try {
+          const eolBytes = parseInput(eolSequenceRef.current);
+          if (eolBytes.length > 0) {
+            for (let i = 0; i <= data.length - eolBytes.length; i++) {
+              let match = true;
+              for (let j = 0; j < eolBytes.length; j++) {
+                if (data[i + j] !== eolBytes[j]) { match = false; break; }
+              }
+              if (match) breakPoints.push(i + eolBytes.length);
+            }
+          }
+        } catch (e) {
+          console.error('Failed to parse EOL sequence:', e);
+        }
+      } else {
+        if (breakModeRef.current === 'chunk') breakPoints.push(data.length);
+
+        if (breakModeRef.current === 'bytes') {
+          const byteCount = breakAfterBytesCountRef.current;
+          // Use <= so a buffer that is exactly N bytes also gets a breakpoint
+          for (let i = byteCount; i <= data.length; i += byteCount) breakPoints.push(i);
+        }
+
+        if (breakModeRef.current === 'beforeSequence' && breakBeforeSequenceValueRef.current) {
+          try {
+            const sequenceBytes = parseInput(breakBeforeSequenceValueRef.current);
+            if (sequenceBytes.length > 0) {
+              for (let i = 0; i <= data.length - sequenceBytes.length; i++) {
+                let match = true;
+                for (let j = 0; j < sequenceBytes.length; j++) {
+                  if (data[i + j] !== sequenceBytes[j]) { match = false; break; }
+                }
+                if (match && i > 0) breakPoints.push(i);
+              }
+            }
+          } catch (e) { console.error('Failed to parse break-before sequence:', e); }
+        }
+
+        if (breakModeRef.current === 'afterSequence' && breakAfterSequenceValueRef.current) {
+          try {
+            const sequenceBytes = parseInput(breakAfterSequenceValueRef.current);
+            if (sequenceBytes.length > 0) {
+              for (let i = 0; i <= data.length - sequenceBytes.length; i++) {
+                let match = true;
+                for (let j = 0; j < sequenceBytes.length; j++) {
+                  if (data[i + j] !== sequenceBytes[j]) { match = false; break; }
+                }
+                if (match) breakPoints.push(i + sequenceBytes.length);
+              }
+            }
+          } catch (e) { console.error('Failed to parse break-after sequence:', e); }
+        }
+
+        // Global EOL sequence also applies in binary modes
+        try {
+          const eolBytes = parseInput(eolSequenceRef.current);
+          if (eolBytes.length > 0) {
+            for (let i = 0; i <= data.length - eolBytes.length; i++) {
+              let match = true;
+              for (let j = 0; j < eolBytes.length; j++) {
+                if (data[i + j] !== eolBytes[j]) { match = false; break; }
+              }
+              if (match) breakPoints.push(i + eolBytes.length);
+            }
+          }
+        } catch (e) { console.error('Failed to parse EOL sequence:', e); }
+      }
+
+      const uniqueBreakPoints = Array.from(new Set(breakPoints)).sort((a, b) => a - b);
+
+      // Logging to file
+      if (isLoggingRef.current && logPathRef.current) {
+        const logLimit = uniqueBreakPoints.length > 0
+          ? uniqueBreakPoints[uniqueBreakPoints.length - 1]
+          : (force ? data.length : 0);
+        if (logLimit > 0) {
+          try {
+            await invoke('log_to_file', { path: logPathRef.current, data: Array.from(data.slice(0, logLimit)) });
+          } catch (e) {
+            console.error('Failed to log:', e);
+            addLog(`Log Error: ${e}`, 'error');
+            setIsLogging(false);
+          }
+        }
+      }
+
+      // Process segments
+      let lastIndex = 0;
+      if (uniqueBreakPoints.length > 0) {
+        for (const breakPoint of uniqueBreakPoints) {
+          if (breakPoint > lastIndex && breakPoint <= data.length) {
+            const segment = data.slice(lastIndex, breakPoint);
+            addLog(new TextDecoder().decode(segment), 'rx', Array.from(segment));
+            lastIndex = breakPoint;
+          }
+        }
+        const remaining = data.slice(lastIndex);
+        if (force && remaining.length > 0) {
+          addLog(new TextDecoder().decode(remaining), 'rx', Array.from(remaining));
+          bufferRef.current = [];
+        } else {
+          bufferRef.current = Array.from(remaining);
+        }
+      } else if (force) {
+        addLog(new TextDecoder().decode(data), 'rx', Array.from(data));
+        bufferRef.current = [];
+      }
+    } finally {
+      flushInProgressRef.current = false;
     }
-    localStorage.setItem('oryx_theme', JSON.stringify(theme));
-  }, [theme]);
+  }, [addLog, setIsLogging]);
 
-  // Persistence Effects
-  useEffect(() => { localStorage.setItem('oryx_autoScroll', JSON.stringify(autoScroll)); }, [autoScroll]);
-  useEffect(() => { localStorage.setItem('oryx_viewMode', JSON.stringify(viewMode)); }, [viewMode]);
-  useEffect(() => { localStorage.setItem('oryx_showMacros', JSON.stringify(showMacros)); }, [showMacros]);
-  useEffect(() => { localStorage.setItem('oryx_breakMode', JSON.stringify(breakMode)); }, [breakMode]);
-  useEffect(() => { localStorage.setItem('oryx_breakAfterBytesCount', JSON.stringify(breakAfterBytesCount)); }, [breakAfterBytesCount]);
-  useEffect(() => { localStorage.setItem('oryx_breakBeforeSequenceValue', JSON.stringify(breakBeforeSequenceValue)); }, [breakBeforeSequenceValue]);
-  useEffect(() => { localStorage.setItem('oryx_breakAfterSequenceValue', JSON.stringify(breakAfterSequenceValue)); }, [breakAfterSequenceValue]);
-  useEffect(() => { localStorage.setItem('oryx_breakAfterTimeoutMs', JSON.stringify(breakAfterTimeoutMs)); }, [breakAfterTimeoutMs]);
-  useEffect(() => { localStorage.setItem('oryx_eolSequence', JSON.stringify(eolSequence)); }, [eolSequence]);
-  useEffect(() => { localStorage.setItem('oryx_showEol', JSON.stringify(showEol)); }, [showEol]);
-  useEffect(() => { localStorage.setItem('oryx_showTimestamp', JSON.stringify(showTimestamp)); }, [showTimestamp]);
-  useEffect(() => { localStorage.setItem('oryx_selectedPort', JSON.stringify(selectedPort)); }, [selectedPort]);
-  useEffect(() => { localStorage.setItem('oryx_logPath', JSON.stringify(logPath)); }, [logPath]);
-  useEffect(() => { localStorage.setItem('oryx_dataBits', JSON.stringify(dataBits)); }, [dataBits]);
-  useEffect(() => { localStorage.setItem('oryx_stopBits', JSON.stringify(stopBits)); }, [stopBits]);
-  useEffect(() => { localStorage.setItem('oryx_parity', JSON.stringify(parity)); }, [parity]);
-  useEffect(() => { localStorage.setItem('oryx_flowControl', JSON.stringify(flowControl)); }, [flowControl]);
-  useEffect(() => { localStorage.setItem('oryx_autoReconnect', JSON.stringify(autoReconnect)); autoReconnectRef.current = autoReconnect; }, [autoReconnect]);
-  useEffect(() => { localStorage.setItem('oryx_reconnectTimeoutSec', JSON.stringify(reconnectTimeoutSec)); reconnectTimeoutSecRef.current = reconnectTimeoutSec; }, [reconnectTimeoutSec]);
-  useEffect(() => { localStorage.setItem('oryx_macroWidth', JSON.stringify(macroWidth)); }, [macroWidth]);
-
-  useEffect(() => {
-    if (isResizing) {
-      const handleMouseMove = (e: MouseEvent) => {
-        const newWidth = Math.max(200, Math.min(window.innerWidth - 300, window.innerWidth - e.clientX));
-        setMacroWidth(newWidth);
-      };
-      const handleMouseUp = () => {
-        setIsResizing(false);
-      };
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-      return () => {
-        window.removeEventListener('mousemove', handleMouseMove);
-        window.removeEventListener('mouseup', handleMouseUp);
-      };
-    }
-  }, [isResizing]);
-
-  const getTimestamp = () => {
-    const now = new Date();
-    return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}.${now.getMilliseconds().toString().padStart(3, '0')}`;
-  };
-
-  // Safe ID generator
-  const generateId = () => Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
-
-  const addLog = (text: string, type: LogEntry['type'], originalData?: number[]) => {
-    // Check for ANSI codes to update session state
-    if (!hasSeenAnsi && text.includes('\x1b')) {
-      setHasSeenAnsi(true);
-    }
-
-    setLines(prev => [...prev, {
-      id: generateId(),
-      timestamp: getTimestamp(),
-      type,
-      text,
-      originalData
-    }]);
-  };
-
+  // ─── Welcome message + connection status sync (run once on mount) ─────────
   const hasLoggedWelcome = useRef(false);
-
   useEffect(() => {
-    // Initial welcome message - only log once
     if (!hasLoggedWelcome.current) {
-      console.log("[App] Mounting...");
-      addLog("Welcome to Oryx Serial Terminal. Ready to connect.", 'system');
-      addLog("Select a view mode below (Text, Hex, Bin, etc).", 'system');
+      addLog('Welcome to Oryx Serial Terminal. Ready to connect.', 'system');
+      addLog('Select a view mode below (Text, Hex, Bin, etc).', 'system');
       hasLoggedWelcome.current = true;
     }
+    const syncConnection = async () => {
+      try {
+        const activePort = await invoke<string | null>('get_connection_status');
+        if (activePort) {
+          setIsConnected(true);
+          setSelectedPort(activePort);
+          addLog(`Detected active connection to ${activePort}.`, 'system');
+        }
+      } catch (e) { console.error('Failed to sync connection status:', e); }
+    };
+    syncConnection();
+  }, [addLog]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ─── Serial data listener ─────────────────────────────────────────────────
+  useEffect(() => {
     const unlisten = listen<SerialPayload>('serial-data', (event) => {
       bufferRef.current.push(...event.payload.data);
       lastReceiveTime.current = Date.now();
     });
+    return () => { unlisten.then(f => f()); };
+  }, []);
 
-    // Listen for unexpected disconnect → Rust starts 200ms reconnect loop automatically
+  // ─── Disconnect / reconnect listeners ─────────────────────────────────────
+  useEffect(() => {
     const unlistenDisconnect = listen('serial-disconnected', () => {
       setIsConnected(false);
       setHasSeenAnsi(false);
       addLog('[DISCONNECTED] Port unexpectedly closed.', 'error');
 
       if (!autoReconnectRef.current) {
-        // User has auto-reconnect disabled — tell Rust to stop its reconnect thread
-        invoke('close_port').catch(() => { });
+        invoke('close_port').catch(() => {});
         return;
       }
 
-      // Start display timer (visual only — Rust does the actual reconnecting)
       setIsReconnecting(true);
       reconnectStartTimeRef.current = Date.now();
       setReconnectElapsed(0);
@@ -239,19 +317,17 @@ function App() {
         const elapsed = Math.floor((Date.now() - reconnectStartTimeRef.current) / 1000);
         setReconnectElapsed(elapsed);
 
-        // Handle timeout: abort Rust reconnect via close_port
         if (reconnectTimeoutSecRef.current > 0 && elapsed >= reconnectTimeoutSecRef.current) {
           clearInterval(reconnectElapsedIntervalRef.current!);
           reconnectElapsedIntervalRef.current = null;
           setIsReconnecting(false);
           setReconnectElapsed(0);
-          invoke('close_port').catch(() => { });
+          invoke('close_port').catch(() => {});
           addLog(`[RECONNECT FAILED] Timed out after ${reconnectTimeoutSecRef.current}s.`, 'error');
         }
       }, 1000);
     });
 
-    // Listen for successful Rust reconnect
     const unlistenReconnected = listen('serial-reconnected', () => {
       if (reconnectElapsedIntervalRef.current) {
         clearInterval(reconnectElapsedIntervalRef.current);
@@ -263,250 +339,78 @@ function App() {
       addLog('[RECONNECTED] Successfully reconnected.', 'system');
     });
 
-    // Sync Connection Status on Mount
-    const syncConnection = async () => {
-      try {
-        const activePort = await invoke<string | null>('get_connection_status');
-        if (activePort) {
-          setIsConnected(true);
-          setSelectedPort(activePort);
-          addLog(`Detected active connection to ${activePort}.`, 'system');
-        }
-      } catch (e) {
-        console.error("Failed to sync connection status:", e);
-      }
+    return () => {
+      unlistenDisconnect.then(f => f());
+      unlistenReconnected.then(f => f());
     };
-    syncConnection();
+  }, [addLog]);
 
-    // Listen for Save to Macro requests
-    const handleSaveToMacro = () => {
-      setShowMacros(true);
-    };
+  // ─── Save-to-macro window event ───────────────────────────────────────────
+  useEffect(() => {
+    const handleSaveToMacro = () => setShowMacros(true);
     window.addEventListener('oryx-add-macro', handleSaveToMacro);
+    return () => window.removeEventListener('oryx-add-macro', handleSaveToMacro);
+  }, [setShowMacros]);
 
+  // ─── Buffer flush interval (60 fps) ───────────────────────────────────────
+  useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
 
-      // Check if we should flush based on timeout
       if (breakModeRef.current === 'timeout' && bufferRef.current.length > 0) {
         if (now - lastReceiveTime.current > breakAfterTimeoutMsRef.current) {
           flushBuffer(true);
+          return;
         }
       }
-
-      // Fallback: flush if buffer has been sitting for too long
-      const forceFlushTimeout = viewModeRef.current === 'text' ? 1000 : 50;
-      const isStale = now - lastReceiveTime.current > forceFlushTimeout;
 
       if (bufferRef.current.length > 0) {
-        if (isStale) {
-          flushBuffer(true);
-        } else {
-          flushBuffer(false);
+        const forceFlushTimeout = viewModeRef.current === 'text' ? 1000 : 50;
+        const isStale = now - lastReceiveTime.current > forceFlushTimeout;
+        flushBuffer(isStale);
+      }
+    }, 16);
+    return () => clearInterval(interval);
+  }, [flushBuffer]);
+
+  // ─── Global keyboard shortcuts ────────────────────────────────────────────
+  const handleClear = useCallback(() => {
+    setLines([]);
+    setHasSeenAnsi(false);
+    addLog('Logs cleared.', 'system');
+  }, [addLog]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 'l') {
+        e.preventDefault();
+        handleClear();
+      } else if (e.key === '?' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        const target = e.target as HTMLElement;
+        if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA') {
+          setIsHelpOpen(true);
         }
       }
-    }, 16); // Check every ~16ms (60fps) to reduce render thrashing
-
-    return () => {
-      unlisten.then(f => f());
-      unlistenDisconnect.then(f => f());
-      unlistenReconnected.then(f => f());
-      window.removeEventListener('oryx-add-macro', handleSaveToMacro);
-      clearInterval(interval);
     };
-  }, []); // hasSeenAnsi dependency added implicitly by addLog closure, but addLog handles it? No, addLog is a closure.
-  // Wait, addLog uses setHasSeenAnsi which is fine. But addLog reads hasSeenAnsi.
-  // Since addLog is called inside useEffect, it captures the initial state.
-  // We need to use specific logic to avoid stale closures if we want it perfect,
-  // BUT simpler approach: inside addLog use functional update or ref for hasSeenAnsi?
-  // Actually, let's fix the closure issue by NOT using 'hasSeenAnsi' in the condition inside useEffect if possible,
-  // OR better: make addLog check a Ref, or just use setHasSeenAnsi(true) always if found?
-  // It's a boolean latch. Once true, stays true. So setHasSeenAnsi(true) is safe to call repeatedly.
-  // Detection: if (text.includes('\x1b')) setHasSeenAnsi(true);
-  // This avoids reading the state. Perfect.
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [handleClear]);
 
-  const flushBuffer = async (force: boolean = false) => {
-    if (bufferRef.current.length === 0) return;
+  // ─── Handlers ─────────────────────────────────────────────────────────────
 
-    const data = Uint8Array.from(bufferRef.current);
-    lastFlushTime.current = Date.now();
-
-    // UI Visualization with Advanced Line Breaking
-    const breakPoints: number[] = []; // Indices where we should break
-    const currentViewMode = viewModeRef.current;
-
-    if (currentViewMode === 'text') {
-      // --- TEXT MODE: Wait strictly for EOL sequence ---
-      try {
-        const eolBytes = parseInput(eolSequenceRef.current);
-        if (eolBytes.length > 0) {
-          for (let i = 0; i <= data.length - eolBytes.length; i++) {
-            let match = true;
-            for (let j = 0; j < eolBytes.length; j++) {
-              if (data[i + j] !== eolBytes[j]) {
-                match = false;
-                break;
-              }
-            }
-            if (match) {
-              breakPoints.push(i + eolBytes.length); // Break AFTER the sequence
-            }
-          }
-        }
-      } catch (e) {
-        console.error("Failed to parse EOL sequence:", e);
-      }
-    } else {
-      // --- BINARY MODES: Use selected breakMode strategy ---
-
-      // 1. Break on every chunk
-      if (breakModeRef.current === 'chunk') {
-        breakPoints.push(data.length);
-      }
-
-      // 2. Break after N bytes
-      if (breakModeRef.current === 'bytes') {
-        const byteCount = breakAfterBytesCountRef.current;
-        for (let i = byteCount; i < data.length; i += byteCount) {
-          breakPoints.push(i);
-        }
-      }
-
-      // 3. Break before sequence
-      if (breakModeRef.current === 'beforeSequence' && breakBeforeSequenceValueRef.current) {
-        try {
-          const sequenceBytes = parseInput(breakBeforeSequenceValueRef.current);
-          if (sequenceBytes.length > 0) {
-            for (let i = 0; i <= data.length - sequenceBytes.length; i++) {
-              let match = true;
-              for (let j = 0; j < sequenceBytes.length; j++) {
-                if (data[i + j] !== sequenceBytes[j]) {
-                  match = false;
-                  break;
-                }
-              }
-              if (match && i > 0) {
-                breakPoints.push(i); // Break BEFORE the sequence
-              }
-            }
-          }
-        } catch (e) {
-          console.error("Failed to parse break-before sequence:", e);
-        }
-      }
-
-      // 4. Break after sequence
-      if (breakModeRef.current === 'afterSequence' && breakAfterSequenceValueRef.current) {
-        try {
-          const sequenceBytes = parseInput(breakAfterSequenceValueRef.current);
-          if (sequenceBytes.length > 0) {
-            for (let i = 0; i <= data.length - sequenceBytes.length; i++) {
-              let match = true;
-              for (let j = 0; j < sequenceBytes.length; j++) {
-                if (data[i + j] !== sequenceBytes[j]) {
-                  match = false;
-                  break;
-                }
-              }
-              if (match) {
-                breakPoints.push(i + sequenceBytes.length); // Break AFTER the sequence
-              }
-            }
-          }
-        } catch (e) {
-          console.error("Failed to parse break-after sequence:", e);
-        }
-      }
-
-      // 5. Global EOL sequence break (Also enabled for Binary modes)
-      try {
-        const eolBytes = parseInput(eolSequenceRef.current);
-        if (eolBytes.length > 0) {
-          for (let i = 0; i <= data.length - eolBytes.length; i++) {
-            let match = true;
-            for (let j = 0; j < eolBytes.length; j++) {
-              if (data[i + j] !== eolBytes[j]) {
-                match = false;
-                break;
-              }
-            }
-            if (match) {
-              breakPoints.push(i + eolBytes.length); // Break AFTER the sequence
-            }
-          }
-        }
-      } catch (e) {
-        console.error("Failed to parse EOL sequence:", e);
-      }
-    }
-
-    // Sort and deduplicate break points
-    const uniqueBreakPoints = Array.from(new Set(breakPoints)).sort((a, b) => a - b);
-
-    // Logging to File (Log EVERYTHING we are about to process)
-    if (isLoggingRef.current && logPathRef.current) {
-      const logLimit = uniqueBreakPoints.length > 0 ? uniqueBreakPoints[uniqueBreakPoints.length - 1] : (force ? data.length : 0);
-      if (logLimit > 0) {
-        const logData = data.slice(0, logLimit);
-        try {
-          await invoke('log_to_file', { path: logPathRef.current, data: Array.from(logData) });
-        } catch (e) {
-          console.error("Failed to log:", e);
-          addLog(`Log Error: ${e}`, 'error');
-          setIsLogging(false);
-        }
-      }
-    }
-
-    // Process segments
-    let lastIndex = 0;
-    if (uniqueBreakPoints.length > 0) {
-      for (const breakPoint of uniqueBreakPoints) {
-        if (breakPoint > lastIndex && breakPoint <= data.length) {
-          const segment = data.slice(lastIndex, breakPoint);
-          const text = new TextDecoder().decode(segment);
-          addLog(text, 'rx', Array.from(segment));
-          lastIndex = breakPoint;
-        }
-      }
-      // Update buffer with remaining data
-      const remaining = data.slice(lastIndex);
-      if (force && remaining.length > 0) {
-        const text = new TextDecoder().decode(remaining);
-        addLog(text, 'rx', Array.from(remaining));
-        bufferRef.current = [];
-      } else {
-        bufferRef.current = Array.from(remaining);
-      }
-    } else if (force) {
-      // No break points but forced flush
-      const text = new TextDecoder().decode(data);
-      addLog(text, 'rx', Array.from(data));
-      bufferRef.current = [];
-    }
-  };
-
-  const handleConnect = async (port: string, baud: number, dataBits: number, stopBits: number, parity: string, flowControl: string) => {
+  const handleConnect = async (port: string, baud: number) => {
     try {
-      await invoke('open_port', {
-        portName: port,
-        baudRate: baud,
-        dataBits: dataBits,
-        stopBits: stopBits,
-        parity: parity,
-        flowControl: flowControl
-      });
+      await invoke('open_port', { portName: port, baudRate: baud, dataBits, stopBits, parity, flowControl });
       setIsConnected(true);
-      setHasSeenAnsi(false); // New session starts fresh
+      setHasSeenAnsi(false);
       addLog(`Connected to ${port} at ${baud} baud (${dataBits}${parity.charAt(0).toUpperCase()}${stopBits}).`, 'system');
-    } catch (e: any) {
+    } catch (e) {
       console.error(e);
       addLog(`Failed to connect: ${e}`, 'error');
     }
   };
 
   const handleDisconnect = async () => {
-    // Stop display timer (Rust close_port also kills the reconnect thread)
     if (reconnectElapsedIntervalRef.current) {
       clearInterval(reconnectElapsedIntervalRef.current);
       reconnectElapsedIntervalRef.current = null;
@@ -517,47 +421,23 @@ function App() {
       await invoke('close_port');
       setIsConnected(false);
       setHasSeenAnsi(false);
-      addLog(`Disconnected.`, 'system');
-    } catch (e) {
-      console.error(e);
-    }
+      addLog('Disconnected.', 'system');
+    } catch (e) { console.error(e); }
   };
 
-  const handleClear = () => {
-    setLines([]);
-    setHasSeenAnsi(false); // Reset smart coloring state
-    addLog("Logs cleared.", 'system');
-  };
-
-  const handleLogPathBrowse = async () => {
-    try {
-      const selected = await save({
-        title: 'Select Log File Location',
-        defaultPath: logPath || 'session_log.txt',
-        filters: [{ name: 'Text Documents', extensions: ['txt', 'log'] }]
-      });
-      if (selected) {
-        setLogPath(selected);
-        logPathRef.current = selected;
-      }
-    } catch (e) {
-      console.error("Failed to open save dialog:", e);
-      addLog(`Dialog Error: ${e}`, 'error');
-    }
-  };
-
-  const handleMacroRun = async (command: string) => {
+  const handleMacroRun = async (command: string): Promise<boolean> => {
     if (!isConnected) {
-      addLog("Cannot send: Not connected.", 'error');
-      return;
+      addLog('Cannot send: Not connected.', 'error');
+      return false;
     }
-
     const dataBytes = parseInput(command);
     try {
       await invoke('send_data', { data: dataBytes });
       addLog(command, 'tx', dataBytes);
+      return true;
     } catch (e) {
       addLog(`Failed to send macro: ${e}`, 'error');
+      return false;
     }
   };
 
@@ -569,30 +449,25 @@ function App() {
         onConnect={handleConnect}
         onDisconnect={handleDisconnect}
         onOpenSettings={() => setIsSettingsOpen(true)}
-        selectedPort={selectedPort}
-        setSelectedPort={setSelectedPort}
-        dataBits={dataBits}
-        stopBits={stopBits}
-        parity={parity}
-        flowControl={flowControl}
       />
 
       <div className="flex-grow flex overflow-hidden min-h-0">
         {/* Main Terminal Area */}
         <div className="flex-grow flex flex-col overflow-hidden relative min-w-0">
-          <Terminal
-            lines={lines}
-            autoScroll={autoScroll}
-            setAutoScroll={setAutoScroll}
-            showTimestamp={showTimestamp}
-            setShowTimestamp={setShowTimestamp}
-            viewMode={viewMode}
-            showEol={showEol}
-            eolSequence={eolSequence}
-            onClear={handleClear}
-            hasSeenAnsi={hasSeenAnsi}
-          />
-
+          <ErrorBoundary label="Terminal">
+            <Terminal
+              lines={lines}
+              autoScroll={autoScroll}
+              setAutoScroll={setAutoScroll}
+              showTimestamp={showTimestamp}
+              setShowTimestamp={setShowTimestamp}
+              viewMode={viewMode}
+              showEol={showEol}
+              eolSequence={eolSequence}
+              onClear={handleClear}
+              hasSeenAnsi={hasSeenAnsi}
+            />
+          </ErrorBoundary>
         </div>
 
         {/* Macro Sidebar */}
@@ -607,7 +482,9 @@ function App() {
               onMouseDown={() => setIsResizing(true)}
             />
             <div className="flex-grow min-w-0">
-              <MacroPanel onRun={handleMacroRun} />
+              <ErrorBoundary label="Macro Panel">
+                <MacroPanel onRun={handleMacroRun} isConnected={isConnected} />
+              </ErrorBoundary>
             </div>
           </div>
         )}
@@ -615,73 +492,26 @@ function App() {
 
       <Sender
         isConnected={isConnected}
-        onSend={(text, data) => {
-          addLog(text, 'tx', data);
-        }}
+        onSend={(text, data) => addLog(text, 'tx', data)}
       />
 
       <StatusBar
         isConnected={isConnected}
         isReconnecting={isReconnecting}
         reconnectElapsed={reconnectElapsed}
-        reconnectTimeout={reconnectTimeoutSec}
-        selectedPort={selectedPort}
-        dataBits={dataBits}
-        stopBits={stopBits}
-        parity={parity}
-        flowControl={flowControl}
-        theme={theme}
-        setTheme={setTheme}
-        viewMode={viewMode}
-        setViewMode={setViewMode}
-        autoScroll={autoScroll}
-        setAutoScroll={setAutoScroll}
-        showMacros={showMacros}
-        setShowMacros={setShowMacros}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onClear={handleClear}
+        onOpenHelp={() => setIsHelpOpen(true)}
       />
 
-      {/* Settings Panel Overlay */}
       <SettingsPanel
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
-        dataBits={dataBits}
-        setDataBits={setDataBits}
-        stopBits={stopBits}
-        setStopBits={setStopBits}
-        parity={parity}
-        setParity={setParity}
-        flowControl={flowControl}
-        setFlowControl={setFlowControl}
-        viewMode={viewMode}
-        setViewMode={setViewMode}
-        breakMode={breakMode}
-        setBreakMode={setBreakMode}
-        breakAfterBytesCount={breakAfterBytesCount}
-        setBreakAfterBytesCount={setBreakAfterBytesCount}
-        breakBeforeSequenceValue={breakBeforeSequenceValue}
-        setBreakBeforeSequenceValue={setBreakBeforeSequenceValue}
-        breakAfterSequenceValue={breakAfterSequenceValue}
-        setBreakAfterSequenceValue={setBreakAfterSequenceValue}
-        breakAfterTimeoutMs={breakAfterTimeoutMs}
-        setBreakAfterTimeoutMs={setBreakAfterTimeoutMs}
-        eolSequence={eolSequence}
-        setEolSequence={setEolSequence}
-        showEol={showEol}
-        setShowEol={setShowEol}
-        logPath={logPath}
-        setLogPath={(p) => {
-          setLogPath(p);
-          logPathRef.current = p;
-        }}
-        isLogging={isLogging}
-        setIsLogging={setIsLogging}
-        onBrowseLogPath={handleLogPathBrowse}
-        autoReconnect={autoReconnect}
-        setAutoReconnect={setAutoReconnect}
-        reconnectTimeoutSec={reconnectTimeoutSec}
-        setReconnectTimeoutSec={setReconnectTimeoutSec}
+      />
+
+      <HelpOverlay
+        isOpen={isHelpOpen}
+        onClose={() => setIsHelpOpen(false)}
       />
     </div>
   );

@@ -15,6 +15,7 @@ interface ContextMenuProps {
 
 export function ContextMenu({ x, y, options, onClose }: ContextMenuProps) {
     const menuRef = useRef<HTMLDivElement>(null);
+    const [measured, setMeasured] = useState(false);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -43,13 +44,14 @@ export function ContextMenu({ x, y, options, onClose }: ContextMenuProps) {
             }
 
             setAdjustedPos({ x: newX, y: newY });
+            setMeasured(true);
         }
     }, [x, y]);
 
     return (
         <div
             ref={menuRef}
-            className="fixed z-[100] min-w-[180px] bg-white dark:bg-[#252526] border border-gray-200 dark:border-white/10 rounded-lg shadow-xl py-1 animate-in fade-in zoom-in duration-100"
+            className={`fixed z-[100] min-w-[180px] bg-white dark:bg-[#252526] border border-gray-200 dark:border-white/10 rounded-lg shadow-xl py-1 transition-opacity duration-75 ${measured ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
             style={{ left: adjustedPos.x, top: adjustedPos.y }}
         >
             {options.map((opt, idx) => (
@@ -60,8 +62,8 @@ export function ContextMenu({ x, y, options, onClose }: ContextMenuProps) {
                         onClose();
                     }}
                     className={`w-full flex items-center gap-3 px-3 py-1.5 text-sm transition-colors hover:bg-gray-100 dark:hover:bg-white/5 ${opt.variant === 'danger'
-                            ? 'text-red-500 hover:text-red-600'
-                            : 'text-gray-700 dark:text-gray-300'
+                        ? 'text-red-500 hover:text-red-600'
+                        : 'text-gray-700 dark:text-gray-300'
                         }`}
                 >
                     {opt.icon && <opt.icon size={16} className="opacity-70" />}

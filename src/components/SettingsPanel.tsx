@@ -1,155 +1,54 @@
-import { useState } from 'react';
-import { X, Settings as SettingsIcon, ChevronDown } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { save } from '@tauri-apps/plugin-dialog';
+import { X, Settings as SettingsIcon } from 'lucide-react';
 import clsx from 'clsx';
-
-interface DropdownOption {
-    label: string;
-    value: string | number;
-}
-
-interface SettingsDropdownProps {
-    label: string;
-    value: string | number;
-    options: DropdownOption[];
-    onChange: (value: any) => void;
-    disabled?: boolean;
-}
-
-function SettingsDropdown({ label, value, options, onChange, disabled }: SettingsDropdownProps) {
-    const [isOpen, setIsOpen] = useState(false);
-    const selectedOption = options.find(opt => opt.value === value);
-
-    return (
-        <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-gray-600 dark:text-gray-400 ml-1">{label}</label>
-            <div className="relative">
-                <div
-                    onClick={() => !disabled && setIsOpen(!isOpen)}
-                    className={clsx(
-                        "w-full bg-white dark:bg-[#1a1c20] border border-gray-300 dark:border-gray-700 rounded-lg pl-4 pr-3 py-2 text-sm font-bold text-gray-900 dark:text-white cursor-pointer shadow-sm hover:border-gray-400 dark:hover:border-gray-600 transition-all flex items-center min-h-[38px] justify-between",
-                        disabled && "opacity-50 cursor-not-allowed"
-                    )}
-                >
-                    <span className="truncate">{selectedOption?.label || value}</span>
-                    <ChevronDown size={14} className={clsx("text-gray-400 transition-transform duration-200", isOpen && "rotate-180")} />
-                </div>
-
-                {isOpen && (
-                    <>
-                        <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-                        <ul className="absolute top-full left-0 mt-1 w-full bg-white dark:bg-[#1a1c20] border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-[200px] overflow-y-auto z-50 py-1">
-                            {options.map((opt) => (
-                                <li
-                                    key={opt.value}
-                                    onClick={() => {
-                                        onChange(opt.value);
-                                        setIsOpen(false);
-                                    }}
-                                    className={clsx(
-                                        "px-4 py-2 text-sm font-medium cursor-pointer transition-colors",
-                                        value === opt.value
-                                            ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"
-                                            : "text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/5"
-                                    )}
-                                >
-                                    {opt.label}
-                                </li>
-                            ))}
-                        </ul>
-                    </>
-                )}
-            </div>
-        </div>
-    );
-}
-
+import { Dropdown } from './Dropdown';
+import { useSettings } from '../contexts/SettingsContext';
 
 interface SettingsPanelProps {
     isOpen: boolean;
     onClose: () => void;
-
-    // Serial Port Config
-    dataBits: number;
-    setDataBits: (v: number) => void;
-    stopBits: number;
-    setStopBits: (v: number) => void;
-    parity: string;
-    setParity: (v: string) => void;
-    flowControl: string;
-    setFlowControl: (v: string) => void;
-
-    // Line Breaking
-    breakMode: 'none' | 'chunk' | 'bytes' | 'beforeSequence' | 'afterSequence' | 'timeout';
-    setBreakMode: (v: 'none' | 'chunk' | 'bytes' | 'beforeSequence' | 'afterSequence' | 'timeout') => void;
-    viewMode: 'text' | 'hex' | 'bin' | 'dec' | 'oct' | 'char';
-    setViewMode: (v: 'text' | 'hex' | 'bin' | 'dec' | 'oct' | 'char') => void;
-    breakAfterBytesCount: number;
-    setBreakAfterBytesCount: (v: number) => void;
-    breakBeforeSequenceValue: string;
-    setBreakBeforeSequenceValue: (v: string) => void;
-    breakAfterSequenceValue: string;
-    setBreakAfterSequenceValue: (v: string) => void;
-    breakAfterTimeoutMs: number;
-    setBreakAfterTimeoutMs: (v: number) => void;
-    eolSequence: string;
-    setEolSequence: (v: string) => void;
-    showEol: boolean;
-    setShowEol: (v: boolean) => void;
-
-    // Logging
-    logPath: string;
-    setLogPath: (path: string) => void;
-    isLogging: boolean;
-    setIsLogging: (logging: boolean) => void;
-    onBrowseLogPath?: () => void;
-
-    // Auto-reconnect
-    autoReconnect: boolean;
-    setAutoReconnect: (v: boolean) => void;
-    reconnectTimeoutSec: number;
-    setReconnectTimeoutSec: (v: number) => void;
 }
 
-export function SettingsPanel({
-    isOpen,
-    onClose,
-    dataBits,
-    setDataBits,
-    stopBits,
-    setStopBits,
-    parity,
-    setParity,
-    flowControl,
-    setFlowControl,
-    breakMode,
-    setBreakMode,
-    breakAfterBytesCount,
-    setBreakAfterBytesCount,
-    breakBeforeSequenceValue,
-    setBreakBeforeSequenceValue,
-    breakAfterSequenceValue,
-    setBreakAfterSequenceValue,
-    breakAfterTimeoutMs,
-    setBreakAfterTimeoutMs,
-    viewMode,
-    setViewMode,
-    eolSequence,
-    setEolSequence,
-    showEol,
-    setShowEol,
-    logPath,
-    setLogPath,
-    isLogging,
-    setIsLogging,
-    onBrowseLogPath,
-    autoReconnect,
-    setAutoReconnect,
-    reconnectTimeoutSec,
-    setReconnectTimeoutSec,
-}: SettingsPanelProps) {
+export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
+    const {
+        dataBits, setDataBits, stopBits, setStopBits, parity, setParity,
+        flowControl, setFlowControl, viewMode, setViewMode,
+        breakMode, setBreakMode, breakAfterBytesCount, setBreakAfterBytesCount,
+        breakBeforeSequenceValue, setBreakBeforeSequenceValue,
+        breakAfterSequenceValue, setBreakAfterSequenceValue,
+        breakAfterTimeoutMs, setBreakAfterTimeoutMs,
+        eolSequence, setEolSequence, showEol, setShowEol,
+        logPath, setLogPath, isLogging, setIsLogging,
+        autoReconnect, setAutoReconnect, reconnectTimeoutSec, setReconnectTimeoutSec,
+    } = useSettings();
+
+    // Hooks must be called unconditionally — before the early return
+    const [showCustomInput, setShowCustomInput] = useState(
+        () => !['\\n', '\\r\\n', '\\r'].includes(eolSequence)
+    );
+
+    // Re-sync when panel is opened in case eolSequence changed while panel was closed
+    useEffect(() => {
+        if (isOpen) {
+            setShowCustomInput(!['\\n', '\\r\\n', '\\r'].includes(eolSequence));
+        }
+    }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
     if (!isOpen) return null;
 
-    const [showCustomInput, setShowCustomInput] = useState(!['\\n', '\\r\\n', '\\r'].includes(eolSequence));
+    const handleBrowseLogPath = async () => {
+        try {
+            const selected = await save({
+                title: 'Select Log File Location',
+                defaultPath: logPath || 'session_log.txt',
+                filters: [{ name: 'Text Documents', extensions: ['txt', 'log'] }],
+            });
+            if (selected) setLogPath(selected);
+        } catch (e) {
+            console.error('Failed to open save dialog:', e);
+        }
+    };
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -183,7 +82,7 @@ export function SettingsPanel({
                             Serial Configuration
                         </h3>
                         <div className="grid grid-cols-2 gap-4">
-                            <SettingsDropdown
+                            <Dropdown
                                 label="Data Bits"
                                 value={dataBits}
                                 options={[
@@ -194,7 +93,7 @@ export function SettingsPanel({
                                 ]}
                                 onChange={setDataBits}
                             />
-                            <SettingsDropdown
+                            <Dropdown
                                 label="Stop Bits"
                                 value={stopBits}
                                 options={[
@@ -203,7 +102,7 @@ export function SettingsPanel({
                                 ]}
                                 onChange={setStopBits}
                             />
-                            <SettingsDropdown
+                            <Dropdown
                                 label="Parity"
                                 value={parity}
                                 options={[
@@ -213,7 +112,7 @@ export function SettingsPanel({
                                 ]}
                                 onChange={setParity}
                             />
-                            <SettingsDropdown
+                            <Dropdown
                                 label="Flow Control"
                                 value={flowControl}
                                 options={[
@@ -252,10 +151,10 @@ export function SettingsPanel({
                                         <button
                                             onClick={() => setViewMode('text')}
                                             className={clsx(
-                                                "px-3 py-1.5 rounded-md text-[10px] font-black tracking-widest transition-all duration-200",
+                                                'px-3 py-1.5 rounded-md text-[10px] font-black tracking-widest transition-all duration-200',
                                                 viewMode === 'text'
-                                                    ? "bg-white dark:bg-[#2a2d33] text-blue-500 shadow-md ring-1 ring-blue-500/20"
-                                                    : "text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                                                    ? 'bg-white dark:bg-[#2a2d33] text-blue-500 shadow-md ring-1 ring-blue-500/20'
+                                                    : 'text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
                                             )}
                                         >
                                             TEXT
@@ -263,10 +162,10 @@ export function SettingsPanel({
                                         <button
                                             onClick={() => { if (viewMode === 'text') setViewMode('hex'); }}
                                             className={clsx(
-                                                "px-3 py-1.5 rounded-md text-[10px] font-black tracking-widest transition-all duration-200",
+                                                'px-3 py-1.5 rounded-md text-[10px] font-black tracking-widest transition-all duration-200',
                                                 viewMode !== 'text'
-                                                    ? "bg-white dark:bg-[#2a2d33] text-green-500 shadow-md ring-1 ring-green-500/20"
-                                                    : "text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                                                    ? 'bg-white dark:bg-[#2a2d33] text-green-500 shadow-md ring-1 ring-green-500/20'
+                                                    : 'text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
                                             )}
                                         >
                                             BINARY
@@ -274,8 +173,8 @@ export function SettingsPanel({
                                     </div>
 
                                     {viewMode !== 'text' && (
-                                        <div className="pt-1 animasi-fade-in bg-green-500/5 rounded-lg border border-green-500/10 p-2">
-                                            <SettingsDropdown
+                                        <div className="pt-1 animate-in fade-in duration-150 bg-green-500/5 rounded-lg border border-green-500/10 p-2">
+                                            <Dropdown
                                                 label="Diagnostic Format"
                                                 value={viewMode}
                                                 options={[
@@ -292,7 +191,7 @@ export function SettingsPanel({
                                 </div>
                             </div>
 
-                            {/* EOL Settings (Always relevant, strictly for Text) */}
+                            {/* EOL Settings */}
                             <div className="p-3 rounded-xl bg-blue-50/50 dark:bg-blue-500/5 border border-blue-100 dark:border-blue-900/20 space-y-3 shadow-sm transition-all">
                                 <div className="flex items-center justify-between">
                                     <div className="flex flex-col">
@@ -304,7 +203,7 @@ export function SettingsPanel({
                                     )}
                                 </div>
 
-                                <SettingsDropdown
+                                <Dropdown
                                     label="Sequence"
                                     value={showCustomInput ? 'custom' : eolSequence}
                                     options={[
@@ -324,7 +223,7 @@ export function SettingsPanel({
                                 />
 
                                 {showCustomInput && (
-                                    <div className="flex flex-col gap-1 animasi-fade-in pl-1">
+                                    <div className="flex flex-col gap-1 animate-in fade-in duration-150 pl-1">
                                         <input
                                             type="text"
                                             value={eolSequence}
@@ -347,10 +246,10 @@ export function SettingsPanel({
                                 </label>
                             </div>
 
-                            {/* Binary Strategies (Diagnostic breaking) */}
-                            <div className={clsx("space-y-4 transition-all duration-300", {
-                                "opacity-30 grayscale pointer-events-none scale-[0.98]": viewMode === 'text',
-                                "p-3 rounded-xl bg-green-50/20 dark:bg-green-500/5 border border-green-100/50 dark:border-green-900/10 shadow-sm": viewMode !== 'text'
+                            {/* Binary Breaking Strategy */}
+                            <div className={clsx('space-y-4 transition-all duration-300', {
+                                'opacity-30 grayscale pointer-events-none scale-[0.98]': viewMode === 'text',
+                                'p-3 rounded-xl bg-green-50/20 dark:bg-green-500/5 border border-green-100/50 dark:border-green-900/10 shadow-sm': viewMode !== 'text',
                             })}>
                                 <div className="flex items-center justify-between">
                                     <div className="flex flex-col">
@@ -363,7 +262,7 @@ export function SettingsPanel({
                                 </div>
 
                                 {viewMode === 'text' && (
-                                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-2 flex gap-2 items-center animasi-fade-in shadow-inner">
+                                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-2 flex gap-2 items-center animate-in fade-in duration-150 shadow-inner">
                                         <p className="text-[9px] text-amber-600 dark:text-amber-400 font-black italic tracking-tight leading-tight">
                                             Text Mode wait for EOL active. Diagnostic strategies are disabled.
                                         </p>
@@ -371,16 +270,24 @@ export function SettingsPanel({
                                 )}
 
                                 <div className="space-y-3 pl-0.5">
-                                    <label className="flex items-center gap-3 group cursor-pointer transition-all">
-                                        <input
-                                            type="radio"
-                                            name="breakMode"
-                                            checked={breakMode === 'none'}
-                                            onChange={() => setBreakMode('none')}
-                                            className="w-4 h-4 border-gray-300 text-blue-500 focus:ring-blue-500 dark:bg-[#1a1c20] dark:border-[#40444b]"
-                                        />
-                                        <span className="text-xs text-gray-700 dark:text-gray-300 group-hover:text-blue-500 transition-colors font-bold tracking-tight">No breaking (Raw data)</span>
-                                    </label>
+                                    {/* None */}
+                                    <div className="space-y-1">
+                                        <label className="flex items-center gap-3 group cursor-pointer transition-all">
+                                            <input
+                                                type="radio"
+                                                name="breakMode"
+                                                checked={breakMode === 'none'}
+                                                onChange={() => setBreakMode('none')}
+                                                className="w-4 h-4 border-gray-300 text-blue-500 focus:ring-blue-500 dark:bg-[#1a1c20] dark:border-[#40444b]"
+                                            />
+                                            <span className="text-xs text-gray-700 dark:text-gray-300 group-hover:text-blue-500 transition-colors font-bold tracking-tight">No breaking (Raw data)</span>
+                                        </label>
+                                        {breakMode === 'none' && (
+                                            <p className="ml-7 text-[9px] text-amber-600 dark:text-amber-400 italic animate-in fade-in duration-150">
+                                                Data renders every ~50ms (force-flush). Best for raw continuous streams.
+                                            </p>
+                                        )}
+                                    </div>
 
                                     <label className="flex items-center gap-3 group cursor-pointer transition-all">
                                         <input
@@ -405,7 +312,7 @@ export function SettingsPanel({
                                             <span className="text-xs text-gray-700 dark:text-gray-300 group-hover:text-blue-500 transition-colors font-bold tracking-tight">Break after fixed length</span>
                                         </label>
                                         {breakMode === 'bytes' && (
-                                            <div className="ml-7 flex items-center gap-2 animasi-fade-in">
+                                            <div className="ml-7 flex items-center gap-2 animate-in fade-in duration-150">
                                                 <input
                                                     type="number"
                                                     value={breakAfterBytesCount}
@@ -429,7 +336,7 @@ export function SettingsPanel({
                                             <span className="text-xs text-gray-700 dark:text-gray-300 group-hover:text-blue-500 transition-colors font-bold tracking-tight">Break before sequence</span>
                                         </label>
                                         {breakMode === 'beforeSequence' && (
-                                            <div className="ml-7 animasi-fade-in">
+                                            <div className="ml-7 animate-in fade-in duration-150">
                                                 <input
                                                     type="text"
                                                     value={breakBeforeSequenceValue}
@@ -453,7 +360,7 @@ export function SettingsPanel({
                                             <span className="text-xs text-gray-700 dark:text-gray-300 group-hover:text-blue-500 transition-colors font-bold tracking-tight">Break after sequence</span>
                                         </label>
                                         {breakMode === 'afterSequence' && (
-                                            <div className="ml-7 animasi-fade-in">
+                                            <div className="ml-7 animate-in fade-in duration-150">
                                                 <input
                                                     type="text"
                                                     value={breakAfterSequenceValue}
@@ -477,7 +384,7 @@ export function SettingsPanel({
                                             <span className="text-xs text-gray-700 dark:text-gray-300 group-hover:text-blue-500 transition-colors font-bold tracking-tight">Break after idle time</span>
                                         </label>
                                         {breakMode === 'timeout' && (
-                                            <div className="ml-7 flex items-center gap-2 animasi-fade-in">
+                                            <div className="ml-7 flex items-center gap-2 animate-in fade-in duration-150">
                                                 <input
                                                     type="number"
                                                     value={breakAfterTimeoutMs}
@@ -508,7 +415,7 @@ export function SettingsPanel({
                                         className="flex-grow bg-gray-50 dark:bg-[#1a1c20] border border-gray-200 dark:border-[#303339] rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
                                     />
                                     <button
-                                        onClick={onBrowseLogPath}
+                                        onClick={handleBrowseLogPath}
                                         className="px-3 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-bold border border-gray-200 dark:border-[#303339] transition-colors"
                                     >
                                         Browse
@@ -545,8 +452,8 @@ export function SettingsPanel({
                             </label>
 
                             {autoReconnect && (
-                                <div className="ml-7 space-y-3 animasi-fade-in">
-                                    <SettingsDropdown
+                                <div className="ml-7 space-y-3 animate-in fade-in duration-150">
+                                    <Dropdown
                                         label="Max Timeout"
                                         value={reconnectTimeoutSec}
                                         options={[

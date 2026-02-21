@@ -1,13 +1,14 @@
 # ORYX - Premium Serial Terminal
 
 [![Tauri](https://img.shields.io/badge/Tauri-v2-FFC131?logo=tauri&logoColor=white)](https://tauri.app/)
-[![React](https://img.shields.io/badge/React-v18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+[![React](https://img.shields.io/badge/React-v19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![Rust](https://img.shields.io/badge/Rust-v1.75+-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)]()
 
 **ORYX** is a premium, high-performance serial terminal designed for modern developers and engineers. Built with the speed of **Rust** and the flexibility of **React**, it offers a rock-solid cross-platform experience for all your serial communication needs.
 
-![ORYX Preview](app_preview.png)
+<img src="app_preview.png" alt="ORYX Preview" width="800"/>
 
 ---
 
@@ -17,13 +18,15 @@
 - 🚀 **High Performance**: Virtualized terminal view capable of handling massive data streams without breaking a sweat.
 - 🛠️ **Advanced Configuration**: Granular control over Baud Rate, Data Bits, Stop Bits, Parity, and Flow Control.
 - 📟 **Smart View Modes**: Toggle between **Text**, **Char**, **Hex**, **Bin**, **Dec**, and **Oct** views on the fly.
-- 🔥 **Advanced Macro System**: Save, categorize, and execute commands from a resizable, color-filtered sidebar.
-- 🕒 **Command History**: Persistent history buffer with dropdown access and arrow-key navigation.
+- 🔥 **Advanced Macro System**: Save, categorize, and execute commands from a resizable, color-filtered sidebar. Drag to reorder macros.
+- 🕒 **Command History**: Persistent, deduplicated history buffer with dropdown access and arrow-key navigation.
 - 💾 **Portability**: Seamlessly Import/Export macro sets via JSON for easy configuration sharing.
 - 🎯 **Direct Saving**: One-click "Save to Macro" functionality directly from your command history.
 - 📋 **Flexible Line Breaking**: Break lines based on **Timeout**, **Byte Count**, **Chunks**, or specific **Sequences**.
 - 📂 **Session Logging**: Robust logging system with automated directory management and session history.
-- ⚡ **ESC Sequences**: Full support for escaped characters and C-style strings in TX data.
+- ⚡ **ESC Sequences**: Full support for escaped characters and C-style strings in TX data (`\h(4F)`, `0x4F`, `\r`, `\n` and more).
+- ⌨️ **Keyboard Shortcuts**: Press `?` for a full shortcut reference. Shift+Enter / Shift+Click to send without line ending.
+- 🛡️ **Crash Resilient**: Error boundaries prevent a component crash from taking down the whole application.
 
 ---
 
@@ -79,6 +82,14 @@ sudo usermod -aG uucp $USER
 
 > [!TIP]
 > This method is preferred over `npm run tauri build` on Arch as it correctly handles system shared libraries (`webkit2gtk-4.1`, `libsoup3`) and provides a clean uninstallation path via `pacman -Rs`.
+
+### macOS
+
+If you see **"ORYX is damaged and can't be opened"** after installing, run:
+```bash
+xattr -cr /Applications/ORYX.app
+```
+This removes the macOS quarantine flag. Required because the app is not yet code-signed.
 
 ---
 

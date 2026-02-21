@@ -1,29 +1,21 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { RefreshCw, Play, Square, Settings as SettingsIcon, ChevronDown } from 'lucide-react';
+import { useSettings } from '../contexts/SettingsContext';
 
 interface ConnectionPanelProps {
     isConnected: boolean;
     isReconnecting: boolean;
-    onConnect: (port: string, baud: number, dataBits: number, stopBits: number, parity: string, flowControl: string) => void;
+    onConnect: (port: string, baud: number) => void;
     onDisconnect: () => void;
     onOpenSettings: () => void;
-
-    selectedPort: string;
-    setSelectedPort: (p: string) => void;
-
-    // Serial Port Config (passed down for the onConnect call)
-    dataBits: number;
-    stopBits: number;
-    parity: string;
-    flowControl: string;
 }
 
 export function ConnectionPanel({
     isConnected, isReconnecting, onConnect, onDisconnect, onOpenSettings,
-    selectedPort, setSelectedPort,
-    dataBits, stopBits, parity, flowControl
 }: ConnectionPanelProps) {
+    const { selectedPort, setSelectedPort } = useSettings();
+
     const [ports, setPorts] = useState<string[]>([]);
     const [baudRate, setBaudRate] = useState<number>(() => {
         const saved = localStorage.getItem('oryx_baudRate');
@@ -42,8 +34,12 @@ export function ConnectionPanel({
         try {
             const availablePorts = await invoke<string[]>('list_ports');
             setPorts(availablePorts);
-            if (availablePorts.length > 0 && !selectedPort) {
+            if (!selectedPort && availablePorts.length > 0) {
+                // No selection yet — auto-select first available
                 setSelectedPort(availablePorts[0]);
+            } else if (selectedPort && !availablePorts.includes(selectedPort)) {
+                // Persisted port is no longer available — clear selection
+                setSelectedPort('');
             }
         } catch (error) {
             console.error('Failed to list ports:', error);
@@ -54,7 +50,7 @@ export function ConnectionPanel({
 
     useEffect(() => {
         refreshPorts();
-    }, []);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-6 px-6 py-4 bg-white/70 dark:bg-[#2b2d31]/70 backdrop-blur-xl border-b border-gray-200/50 dark:border-white/5 shadow-[0_4px_20px_-5px_rgba(0,0,0,0.1)] animate-toolbar transition-all duration-300 select-none">
@@ -65,7 +61,7 @@ export function ConnectionPanel({
                 <div className="flex flex-col gap-1.5">
                     <label className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wide ml-1">Serial Port</label>
                     <div className="relative">
-                        {/* Trigger Box (Matches Baud Rate Input) */}
+                        {/* Trigger Box */}
                         <div
                             onClick={() => !(isConnected || isReconnecting) && setIsPortOpen(!isPortOpen)}
                             className={`w-full bg-white dark:bg-[#1a1c20] border border-gray-300 dark:border-gray-700 rounded-lg pl-4 pr-12 py-2.5 text-sm font-bold text-gray-900 dark:text-white cursor-pointer min-w-[200px] shadow-sm hover:border-gray-400 dark:hover:border-gray-600 transition-all ${(isConnected || isReconnecting) ? 'opacity-60 cursor-not-allowed' : ''} flex items-center h-[42px]`}
@@ -83,7 +79,7 @@ export function ConnectionPanel({
                             className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 hover:bg-gray-100 dark:hover:bg-white/10 rounded-md transition-all text-gray-500 hover:text-blue-600 dark:text-gray-400 disabled:opacity-30 z-10"
                             title="Refresh Ports"
                         >
-                            <RefreshCw size={14} className={loading ? "animate-spin" : "transition-transform group-hover:rotate-180 duration-500"} />
+                            <RefreshCw size={14} className={loading ? 'animate-spin' : 'transition-transform group-hover:rotate-180 duration-500'} />
                         </button>
 
                         {/* Dropdown Menu */}
@@ -176,13 +172,13 @@ export function ConnectionPanel({
                 </button>
 
                 <button
-                    onClick={() => (isConnected || isReconnecting) ? onDisconnect() : onConnect(selectedPort, baudRate, dataBits, stopBits, parity, flowControl)}
+                    onClick={() => (isConnected || isReconnecting) ? onDisconnect() : onConnect(selectedPort, baudRate)}
                     disabled={!selectedPort && !isConnected && !isReconnecting}
                     className={`relative flex items-center gap-3 px-6 py-2.5 rounded-xl font-bold text-sm shadow-lg transition-all transform active:scale-95 overflow-hidden group/btn ${isReconnecting
-                            ? "bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/20"
+                            ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/20'
                             : isConnected
-                                ? "bg-red-500 hover:bg-red-600 text-white shadow-red-500/20"
-                                : "bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/20 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed"
+                                ? 'bg-red-500 hover:bg-red-600 text-white shadow-red-500/20'
+                                : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/20 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed'
                         }`}
                 >
                     <div className="absolute inset-0 bg-white/10 translate-y-full group-hover/btn:translate-y-0 transition-transform duration-300" />

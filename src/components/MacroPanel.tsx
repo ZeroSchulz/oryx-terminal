@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { PlusSquare, Trash2, Play, Save, X, Edit2, FileDown, FileUp, Zap, RotateCcw } from 'lucide-react';
+import { PlusSquare, Trash2, Play, Save, X, Edit2, FileDown, FileUp, Zap, RotateCcw, GripVertical } from 'lucide-react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import clsx from 'clsx';
@@ -12,10 +12,11 @@ export interface Macro {
 }
 
 interface MacroPanelProps {
-    onRun: (command: string) => void;
+    onRun: (command: string) => Promise<boolean>;
+    isConnected: boolean;
 }
 
-export function MacroPanel({ onRun }: MacroPanelProps) {
+export function MacroPanel({ onRun, isConnected }: MacroPanelProps) {
     const [macros, setMacros] = useState<Macro[]>(() => {
         const saved = localStorage.getItem('oryx_macros');
         if (saved) {
@@ -41,6 +42,13 @@ export function MacroPanel({ onRun }: MacroPanelProps) {
     const [editColor, setEditColor] = useState('blue');
     const [filterColor, setFilterColor] = useState<string | null>(null);
     const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+    const [importConfirm, setImportConfirm] = useState<{ macros: Macro[], count: number } | null>(null);
+    const [importError, setImportError] = useState<string | null>(null);
+    const [sendFailedId, setSendFailedId] = useState<string | null>(null);
+    const [dragId, setDragId] = useState<string | null>(null);
+    const [dragOverId, setDragOverId] = useState<string | null>(null);
+    const dragSourceRef = useRef<string | null>(null);
+    const dragTargetRef = useRef<string | null>(null);
 
     const COLORS = ['blue', 'red', 'green', 'purple', 'orange', 'gray'];
 
@@ -103,28 +111,38 @@ export function MacroPanel({ onRun }: MacroPanelProps) {
             }
         } catch (error) {
             console.error("Failed to export macros", error);
-            alert(`Failed to export macros: ${error}`);
+            setImportError(`Failed to export macros: ${error}`);
         }
+    };
+
+    const isValidMacro = (obj: unknown): obj is Macro => {
+        if (typeof obj !== 'object' || obj === null) return false;
+        const m = obj as Record<string, unknown>;
+        return typeof m.id === 'string' && typeof m.name === 'string' && typeof m.command === 'string';
     };
 
     const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        setImportError(null);
 
         const reader = new FileReader();
         reader.onload = (event) => {
             try {
                 const imported = JSON.parse(event.target?.result as string);
-                if (Array.isArray(imported)) {
-                    if (confirm(`Import ${imported.length} macros? This will replace your current ones.`)) {
-                        setMacros(imported);
-                    }
-                } else {
-                    alert("Invalid macro file format.");
+                if (!Array.isArray(imported)) {
+                    setImportError('Invalid macro file format — expected a JSON array.');
+                    return;
                 }
+                const valid = imported.filter(isValidMacro);
+                if (valid.length === 0) {
+                    setImportError('No valid macros found. Each must have id, name, and command.');
+                    return;
+                }
+                setImportConfirm({ macros: valid, count: valid.length });
             } catch (error) {
-                console.error("Failed to import macros", error);
-                alert("Failed to parse macro file.");
+                console.error('Failed to import macros', error);
+                setImportError('Failed to parse macro file.');
             }
             // Clear input so same file can be selected again
             if (fileInputRef.current) fileInputRef.current.value = '';
@@ -146,47 +164,105 @@ export function MacroPanel({ onRun }: MacroPanelProps) {
         }
     };
 
-    const getColorClass = (color: string | undefined, type: 'bg' | 'text' | 'border' | 'accent') => {
+    type ColorType = 'bg' | 'text' | 'border' | 'accent';
+    type ColorMap = Record<string, Record<ColorType, string>>;
+
+    const colorMap: ColorMap = {
+        blue: {
+            bg: 'bg-blue-50/30 dark:bg-blue-900/10',
+            text: 'text-blue-700 dark:text-blue-300',
+            border: 'border-blue-200/50 dark:border-blue-800/30',
+            accent: 'bg-blue-500'
+        },
+        red: {
+            bg: 'bg-red-50/30 dark:bg-red-900/10',
+            text: 'text-red-700 dark:text-red-300',
+            border: 'border-red-200/50 dark:border-red-800/30',
+            accent: 'bg-red-500'
+        },
+        green: {
+            bg: 'bg-green-50/30 dark:bg-green-900/10',
+            text: 'text-green-700 dark:text-green-300',
+            border: 'border-green-200/50 dark:border-green-800/30',
+            accent: 'bg-green-500'
+        },
+        purple: {
+            bg: 'bg-purple-50/30 dark:bg-purple-900/10',
+            text: 'text-purple-700 dark:text-purple-300',
+            border: 'border-purple-200/50 dark:border-purple-800/30',
+            accent: 'bg-purple-500'
+        },
+        orange: {
+            bg: 'bg-orange-50/30 dark:bg-orange-900/10',
+            text: 'text-orange-700 dark:text-orange-300',
+            border: 'border-orange-200/50 dark:border-orange-800/30',
+            accent: 'bg-orange-500'
+        },
+        gray: {
+            bg: 'bg-gray-50/30 dark:bg-gray-800/30',
+            text: 'text-gray-700 dark:text-gray-300',
+            border: 'border-gray-200/50 dark:border-gray-700/30',
+            accent: 'bg-gray-400'
+        },
+    };
+
+    const getColorClass = (color: string | undefined, type: ColorType): string => {
         const c = color || 'blue';
-        const map: any = {
-            blue: {
-                bg: 'bg-blue-50/30 dark:bg-blue-900/10',
-                text: 'text-blue-700 dark:text-blue-300',
-                border: 'border-blue-200/50 dark:border-blue-800/30',
-                accent: 'bg-blue-500'
-            },
-            red: {
-                bg: 'bg-red-50/30 dark:bg-red-900/10',
-                text: 'text-red-700 dark:text-red-300',
-                border: 'border-red-200/50 dark:border-red-800/30',
-                accent: 'bg-red-500'
-            },
-            green: {
-                bg: 'bg-green-50/30 dark:bg-green-900/10',
-                text: 'text-green-700 dark:text-green-300',
-                border: 'border-green-200/50 dark:border-green-800/30',
-                accent: 'bg-green-500'
-            },
-            purple: {
-                bg: 'bg-purple-50/30 dark:bg-purple-900/10',
-                text: 'text-purple-700 dark:text-purple-300',
-                border: 'border-purple-200/50 dark:border-purple-800/30',
-                accent: 'bg-purple-500'
-            },
-            orange: {
-                bg: 'bg-orange-50/30 dark:bg-orange-900/10',
-                text: 'text-orange-700 dark:text-orange-300',
-                border: 'border-orange-200/50 dark:border-orange-800/30',
-                accent: 'bg-orange-500'
-            },
-            gray: {
-                bg: 'bg-gray-50/30 dark:bg-gray-800/30',
-                text: 'text-gray-700 dark:text-gray-300',
-                border: 'border-gray-200/50 dark:border-gray-700/30',
-                accent: 'bg-gray-400'
-            },
+        return colorMap[c]?.[type] || colorMap['blue'][type];
+    };
+
+    const runMacro = async (macroId: string, command: string) => {
+        const success = await onRun(command);
+        if (!success) {
+            setSendFailedId(macroId);
+            setTimeout(() => setSendFailedId(prev => prev === macroId ? null : prev), 1000);
+        }
+    };
+
+    const handlePointerDown = (e: React.PointerEvent, id: string) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        dragSourceRef.current = id;
+        setDragId(id);
+
+        const onPointerMove = (ev: PointerEvent) => {
+            const el = document.elementFromPoint(ev.clientX, ev.clientY);
+            const card = el?.closest('[data-macro-id]') as HTMLElement | null;
+            const targetId = card?.getAttribute('data-macro-id') ?? null;
+            if (targetId && targetId !== dragSourceRef.current) {
+                if (targetId !== dragTargetRef.current) {
+                    dragTargetRef.current = targetId;
+                    setDragOverId(targetId);
+                }
+            } else if (dragTargetRef.current) {
+                dragTargetRef.current = null;
+                setDragOverId(null);
+            }
         };
-        return map[c]?.[type] || map['blue'][type];
+
+        const onPointerUp = () => {
+            const sourceId = dragSourceRef.current;
+            const targetId = dragTargetRef.current;
+            if (sourceId && targetId && sourceId !== targetId) {
+                setMacros(prev => {
+                    const from = prev.findIndex(m => m.id === sourceId);
+                    const to = prev.findIndex(m => m.id === targetId);
+                    const next = [...prev];
+                    const [removed] = next.splice(from, 1);
+                    next.splice(to, 0, removed);
+                    return next;
+                });
+            }
+            dragSourceRef.current = null;
+            dragTargetRef.current = null;
+            setDragId(null);
+            setDragOverId(null);
+            document.removeEventListener('pointermove', onPointerMove);
+            document.removeEventListener('pointerup', onPointerUp);
+        };
+
+        document.addEventListener('pointermove', onPointerMove);
+        document.addEventListener('pointerup', onPointerUp);
     };
 
     return (
@@ -269,18 +345,72 @@ export function MacroPanel({ onRun }: MacroPanelProps) {
             </div>
 
             <div className="flex-grow overflow-y-auto p-3 space-y-3">
+                {/* Import Confirmation Banner */}
+                {importConfirm && (
+                    <div className="flex items-center justify-between gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/40 rounded-lg text-xs">
+                        <span className="text-blue-700 dark:text-blue-300 font-medium">
+                            Import {importConfirm.count} macros? This will replace your current ones.
+                        </span>
+                        <div className="flex gap-1.5 flex-shrink-0">
+                            <button
+                                onClick={() => { setMacros(importConfirm.macros); setImportConfirm(null); }}
+                                className="px-3 py-1 bg-blue-600 text-white rounded font-bold hover:bg-blue-700 transition-colors"
+                            >
+                                Import
+                            </button>
+                            <button
+                                onClick={() => setImportConfirm(null)}
+                                className="px-3 py-1 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors font-bold"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Import Error Banner */}
+                {importError && (
+                    <div className="flex items-center justify-between gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40 rounded-lg text-xs">
+                        <span className="text-red-700 dark:text-red-300 font-medium">{importError}</span>
+                        <button
+                            onClick={() => setImportError(null)}
+                            className="p-1 text-red-400 hover:text-red-600 transition-colors flex-shrink-0"
+                        >
+                            <X size={14} />
+                        </button>
+                    </div>
+                )}
+
                 {macros
                     .filter(m => !filterColor || m.color === filterColor)
                     .map(m => (
                         <div
                             key={m.id}
-                            className="group relative bg-white dark:bg-[#202124] rounded-md border border-gray-200 dark:border-[#303339] shadow-sm hover:shadow-md hover:border-blue-500/30 transition-all overflow-hidden"
+                            data-macro-id={m.id}
+                            className={clsx(
+                                'group relative bg-white dark:bg-[#202124] rounded-md border shadow-sm transition-all overflow-hidden select-none',
+                                !isConnected && 'opacity-50',
+                                isConnected && 'hover:shadow-md',
+                                dragId === m.id && 'opacity-40 scale-[0.98] shadow-none',
+                                dragOverId === m.id && dragId !== m.id && 'border-blue-400 dark:border-blue-500 ring-2 ring-blue-400/30',
+                                sendFailedId === m.id
+                                    ? 'border-red-500/60 bg-red-50 dark:bg-red-900/10'
+                                    : 'border-gray-200 dark:border-[#303339] hover:border-blue-500/30',
+                            )}
                         >
                             {/* Vertical Accent Bar */}
                             <div className={`absolute left-0 top-0 bottom-0 w-[4px] ${getColorClass(m.color, 'accent')}`} />
 
-                            <div className="pl-4 pr-3 py-3 flex justify-between items-center min-w-0">
-                                <div className="flex-grow cursor-pointer min-w-0" onClick={() => onRun(m.command)}>
+                            <div className="pl-2 pr-3 py-3 flex items-center gap-1.5 min-w-0">
+                                {/* Drag Handle */}
+                                <div
+                                    onPointerDown={(e) => handlePointerDown(e, m.id)}
+                                    className="flex-shrink-0 flex items-center justify-center w-6 h-full cursor-grab active:cursor-grabbing touch-none select-none text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 transition-colors"
+                                    title="Drag to reorder"
+                                >
+                                    <GripVertical size={14} />
+                                </div>
+                                <div className={clsx('flex-grow min-w-0', isConnected ? 'cursor-pointer' : 'cursor-not-allowed')} onClick={() => isConnected && runMacro(m.id, m.command)}>
                                     <div className="font-bold text-sm text-gray-900 dark:text-gray-100 truncate pr-16 mb-0.5">
                                         {m.name}
                                     </div>
@@ -311,9 +441,10 @@ export function MacroPanel({ onRun }: MacroPanelProps) {
                                     ) : (
                                         <>
                                             <button
-                                                onClick={(e) => { e.stopPropagation(); onRun(m.command); }}
-                                                className="text-blue-600 p-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/40 rounded transition-colors"
-                                                title="Run macro"
+                                                onClick={(e) => { e.stopPropagation(); runMacro(m.id, m.command); }}
+                                                disabled={!isConnected}
+                                                className="text-blue-600 p-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/40 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                title={isConnected ? 'Run macro' : 'Not connected'}
                                             >
                                                 <Play size={14} fill="currentColor" />
                                             </button>

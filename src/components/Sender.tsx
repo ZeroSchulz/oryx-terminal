@@ -1,191 +1,28 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Send, Terminal, ChevronDown, Clock, X, BookmarkPlus } from 'lucide-react';
 import clsx from 'clsx';
+import { Dropdown } from './Dropdown';
+import { parseInput } from '../utils/parser';
+
+// Re-export so existing callers (App.tsx, etc.) don't need to change their import path.
+export { parseInput } from '../utils/parser';
 
 interface SenderProps {
     isConnected: boolean;
     onSend?: (text: string, data: number[]) => void;
 }
 
-export const parseInput = (input: string): number[] => {
-    const bytes: number[] = [];
-    let i = 0;
-
-    while (i < input.length) {
-        const char = input[i];
-
-        // Check for C-style 0x... 0b...
-        if (char === '0' && i + 1 < input.length) {
-            const next = input[i + 1].toLowerCase();
-            if (next === 'x') {
-                // Hex 0x...
-                let end = i + 2;
-                while (end < input.length && /[0-9a-fA-F]/.test(input[end])) {
-                    end++;
-                }
-                if (end > i + 2) {
-                    const hexStr = input.substring(i + 2, end);
-                    // Parse 2 chars at a time if possible, or just the whole value? 
-                    // Usually 0x4F is one byte. 0x1234 is two bytes? 
-                    // Let's assume user might type 0x1234.
-                    // But strictly 0x should handle byte by byte or big int?
-                    // Standard terminals often treat 0xXX as a byte.
-
-                    // Let's parse as a sequence of bytes if even length, or just one number?
-                    // User request: "C-style "0x4F"" -> byte 79.
-                    // If user types 0x1234, is it [0x12, 0x34]?
-                    // Let's implement generic hex parsing for the block to be safe.
-                    // But for 0x, let's treat it as a single number if it fits in 255? 
-                    // Or just parse the whole hex string into bytes.
-
-                    // Simple approach: Take pairs. Left pad if odd?
-                    let cleanHex = hexStr;
-                    if (cleanHex.length % 2 !== 0) cleanHex = '0' + cleanHex;
-
-                    for (let k = 0; k < cleanHex.length; k += 2) {
-                        bytes.push(parseInt(cleanHex.substring(k, k + 2), 16));
-                    }
-                    i = end;
-                    continue;
-                }
-            } else if (next === 'b') {
-                // Bin 0b...
-                let end = i + 2;
-                while (end < input.length && /[01]/.test(input[end])) {
-                    end++;
-                }
-                if (end > i + 2) {
-                    const binStr = input.substring(i + 2, end);
-                    // Parse into bytes (8 bits)
-                    // Pad to multiple of 8? Or just parse value?
-                    // "0b01001111" is 8 chars.
-                    // If user types 0b1, is it 1?
-                    // Let's parse as integer and push byte?
-                    const val = parseInt(binStr, 2);
-                    if (val <= 255) {
-                        bytes.push(val);
-                    } else {
-                        // Split into bytes... handling big numbers is tricky. 
-                        // Let's pad to bytes.
-                        const needed = Math.ceil(binStr.length / 8) * 8;
-                        const padded = binStr.padStart(needed, '0');
-                        for (let k = 0; k < padded.length; k += 8) {
-                            bytes.push(parseInt(padded.substring(k, k + 8), 2));
-                        }
-                    }
-                    i = end;
-                    continue;
-                }
-            }
-        }
-
-        if (char === '\\') {
-            const next = input[i + 1];
-
-            // Block parsers \h(...)
-            if (['h', 'b', 'd', 'o'].includes(next) && input[i + 2] === '(') {
-                const end = input.indexOf(')', i + 3);
-                if (end !== -1) {
-                    const content = input.substring(i + 3, end);
-                    const tokens = content.split(/[\s,]+/); // Split by space or comma
-
-                    tokens.forEach(t => {
-                        if (!t) return;
-                        let val = 0;
-                        if (next === 'h') val = parseInt(t, 16);
-                        else if (next === 'b') val = parseInt(t, 2);
-                        else if (next === 'd') val = parseInt(t, 10);
-                        else if (next === 'o') val = parseInt(t, 8);
-
-                        if (!isNaN(val)) bytes.push(val & 0xFF);
-                    });
-
-                    i = end + 1;
-                    continue;
-                }
-            }
-
-            // Standard escapes
-            if (next === 'r') { bytes.push(13); i += 2; continue; }
-            if (next === 'n') { bytes.push(10); i += 2; continue; }
-            if (next === 't') { bytes.push(9); i += 2; continue; }
-            if (next === '\\') { bytes.push(92); i += 2; continue; }
-            // Hex escape \xFF
-            if (next === 'x') {
-                const hex = input.substring(i + 2, i + 4);
-                if (hex.length === 2 && /^[0-9a-fA-F]+$/.test(hex)) {
-                    bytes.push(parseInt(hex, 16));
-                    i += 4;
-                    continue;
-                }
-            }
-        }
-
-        // Regular char
-        bytes.push(char.charCodeAt(0));
-        i++;
-    }
-    return bytes;
-};
-
-interface SenderDropdownProps {
-    label: string;
-    value: string;
-    options: { label: string; value: string }[];
-    onChange: (value: any) => void;
-}
-
-function SenderDropdown({ label, value, options, onChange }: SenderDropdownProps) {
-    const [isOpen, setIsOpen] = useState(false);
-    const selectedOption = options.find(opt => opt.value === value);
-
-    return (
-        <div className="relative group flex flex-col">
-            <label className="text-[8px] uppercase font-bold text-gray-500 tracking-wider mb-0.5 ml-1">{label}</label>
-            <div className="relative">
-                <div
-                    onClick={() => setIsOpen(!isOpen)}
-                    className="flex items-center gap-1 pl-3 pr-3 py-2 rounded-md text-xs font-mono bg-gray-100 dark:bg-[#1e1e1e] border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 cursor-pointer hover:border-blue-500 transition-all min-w-[85px] justify-between shadow-sm h-[34px]"
-                >
-                    <span className="truncate">{selectedOption?.label || value}</span>
-                    <ChevronDown size={12} className={clsx("transition-transform duration-200 text-gray-500", isOpen && "rotate-180")} />
-                </div>
-
-                {isOpen && (
-                    <>
-                        <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-                        <ul className="absolute bottom-full left-0 mb-1 w-full bg-white dark:bg-[#1e1e1e] border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl overflow-hidden z-50 py-1">
-                            {options.map((opt) => (
-                                <li
-                                    key={opt.value}
-                                    onClick={() => {
-                                        onChange(opt.value);
-                                        setIsOpen(false);
-                                    }}
-                                    className={clsx(
-                                        "px-3 py-1.5 text-xs font-medium cursor-pointer transition-colors",
-                                        value === opt.value
-                                            ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"
-                                            : "text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/5"
-                                    )}
-                                >
-                                    {opt.label}
-                                </li>
-                            ))}
-                        </ul>
-                    </>
-                )}
-            </div>
-        </div>
-    );
-}
-
 const HISTORY_MAX = 100;
 const HISTORY_KEY = 'oryx_sendHistory';
+const LINE_ENDING_KEY = 'oryx_lineEnding';
 
 function loadHistory(): string[] {
-    try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch { return []; }
+    try {
+        const raw: string[] = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+        // Deduplicate in case older versions stored repeated entries
+        return raw.filter((v, i, a) => a.indexOf(v) === i);
+    } catch { return []; }
 }
 function saveHistory(h: string[]) {
     localStorage.setItem(HISTORY_KEY, JSON.stringify(h));
@@ -193,38 +30,45 @@ function saveHistory(h: string[]) {
 
 export function Sender({ isConnected, onSend }: SenderProps) {
     const [input, setInput] = useState('');
-    const [lineEnding, setLineEnding] = useState<'None' | 'CR' | 'LF' | 'CRLF'>('CRLF');
+    const [lineEnding, setLineEnding] = useState<'None' | 'CR' | 'LF' | 'CRLF'>(() => {
+        return (localStorage.getItem(LINE_ENDING_KEY) as 'None' | 'CR' | 'LF' | 'CRLF') ?? 'CRLF';
+    });
 
-    // History state
+    // Persist lineEnding selection across sessions
+    useEffect(() => {
+        localStorage.setItem(LINE_ENDING_KEY, lineEnding);
+    }, [lineEnding]);
+
+    // History: stored in a ref so mutations don't cause re-renders
     const historyRef = useRef<string[]>(loadHistory());
-    const historyIndexRef = useRef<number>(-1); // -1 = not browsing
-    const draftRef = useRef<string>('');         // saved draft while browsing
+    // historyIndex as state so React re-renders when browsing state changes
+    const [historyIndex, setHistoryIndex] = useState(-1); // -1 = not browsing
+    const draftRef = useRef<string>('');                  // draft saved while browsing
 
     const pushHistory = (text: string) => {
-        const h = historyRef.current;
-        // Don't add duplicate of last entry
-        if (h[0] === text) return;
-        const next = [text, ...h].slice(0, HISTORY_MAX);
+        // Remove all existing occurrences so the entry string is always unique (safe as a React key)
+        const deduped = historyRef.current.filter(e => e !== text);
+        const next = [text, ...deduped].slice(0, HISTORY_MAX);
         historyRef.current = next;
         saveHistory(next);
     };
 
-    const handleSend = async () => {
+    const handleSend = async (raw = false) => {
         if (!isConnected || !input) return;
 
-        // Parse input to bytes
         const dataBytes = parseInput(input);
 
-        // Append line ending
-        if (lineEnding === 'CR') dataBytes.push(13);
-        if (lineEnding === 'LF') dataBytes.push(10);
-        if (lineEnding === 'CRLF') { dataBytes.push(13); dataBytes.push(10); }
+        if (!raw) {
+            if (lineEnding === 'CR')   dataBytes.push(13);
+            if (lineEnding === 'LF')   dataBytes.push(10);
+            if (lineEnding === 'CRLF') { dataBytes.push(13); dataBytes.push(10); }
+        }
 
         try {
             await invoke('send_data', { data: dataBytes });
             onSend?.(input, dataBytes);
             pushHistory(input);
-            historyIndexRef.current = -1;
+            setHistoryIndex(-1);
             draftRef.current = '';
             setInput('');
         } catch (e) {
@@ -233,9 +77,9 @@ export function Sender({ isConnected, onSend }: SenderProps) {
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        if (e.key === 'Enter') {
             e.preventDefault();
-            handleSend();
+            handleSend(e.shiftKey);
             return;
         }
 
@@ -244,35 +88,35 @@ export function Sender({ isConnected, onSend }: SenderProps) {
 
         if (e.key === 'ArrowUp') {
             e.preventDefault();
-            if (historyIndexRef.current === -1) {
+            if (historyIndex === -1) {
                 // Save current draft before browsing
                 draftRef.current = input;
             }
-            const next = Math.min(historyIndexRef.current + 1, h.length - 1);
-            historyIndexRef.current = next;
+            const next = Math.min(historyIndex + 1, h.length - 1);
+            setHistoryIndex(next);
             setInput(h[next]);
         } else if (e.key === 'ArrowDown') {
             e.preventDefault();
-            if (historyIndexRef.current <= 0) {
+            if (historyIndex <= 0) {
                 // Back to draft
-                historyIndexRef.current = -1;
+                setHistoryIndex(-1);
                 setInput(draftRef.current);
             } else {
-                const next = historyIndexRef.current - 1;
-                historyIndexRef.current = next;
+                const next = historyIndex - 1;
+                setHistoryIndex(next);
                 setInput(h[next]);
             }
         } else if (e.key === 'Escape') {
-            historyIndexRef.current = -1;
+            setHistoryIndex(-1);
             setInput(draftRef.current);
         }
     };
 
-    const isBrowsingHistory = historyIndexRef.current !== -1;
+    const isBrowsingHistory = historyIndex !== -1;
     const [historyOpen, setHistoryOpen] = useState(false);
 
     const selectHistoryEntry = (entry: string) => {
-        historyIndexRef.current = -1;
+        setHistoryIndex(-1);
         draftRef.current = '';
         setInput(entry);
         setHistoryOpen(false);
@@ -281,13 +125,13 @@ export function Sender({ isConnected, onSend }: SenderProps) {
     const clearHistory = () => {
         historyRef.current = [];
         saveHistory([]);
-        historyIndexRef.current = -1;
+        setHistoryIndex(-1);
         setHistoryOpen(false);
     };
 
     return (
         <div className="flex items-center gap-3 p-3 bg-white dark:bg-[#2b2d31] border-t border-gray-200 dark:border-[#1e1e1e] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] dark:shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)] z-10 transition-colors duration-200">
-            <SenderDropdown
+            <Dropdown
                 label="Line End"
                 value={lineEnding}
                 options={[
@@ -297,6 +141,7 @@ export function Sender({ isConnected, onSend }: SenderProps) {
                     { label: 'CRLF', value: 'CRLF' },
                 ]}
                 onChange={setLineEnding}
+                direction="up"
             />
 
             <div className="flex-grow min-w-0 relative flex flex-col group/input">
@@ -305,7 +150,7 @@ export function Sender({ isConnected, onSend }: SenderProps) {
                     {historyRef.current.length > 0 && (
                         <span className="ml-2 normal-case text-[8px] font-normal italic">
                             {isBrowsingHistory
-                                ? <span className="text-amber-500">&#8593;&#8595; history ({historyIndexRef.current + 1}/{historyRef.current.length})</span>
+                                ? <span className="text-amber-500">&#8593;&#8595; history ({historyIndex + 1}/{historyRef.current.length})</span>
                                 : <span className="text-gray-400 dark:text-gray-500">&#8593;&#8595; history</span>
                             }
                         </span>
@@ -318,7 +163,7 @@ export function Sender({ isConnected, onSend }: SenderProps) {
                     <input
                         type="text"
                         value={input}
-                        onChange={(e) => { historyIndexRef.current = -1; setInput(e.target.value); }}
+                        onChange={(e) => { setHistoryIndex(-1); setInput(e.target.value); }}
                         onKeyDown={handleKeyDown}
                         disabled={!isConnected}
                         placeholder={isConnected ? "Try: \\h(48 69) or 0x4F" : "Connect to send"}
@@ -355,14 +200,14 @@ export function Sender({ isConnected, onSend }: SenderProps) {
                     {historyOpen && historyRef.current.length > 0 && (
                         <>
                             <div className="fixed inset-0 z-40" onClick={() => setHistoryOpen(false)} />
-                            <div className="absolute bottom-full left-0 w-full mb-1 bg-white dark:bg-[#1a1c20] border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden animasi-fade-in">
+                            <div className="absolute bottom-full left-0 w-full mb-1 bg-white dark:bg-[#1a1c20] border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden animate-fade-in">
                                 <ul className="max-h-64 overflow-y-auto py-1 custom-scrollbar">
                                     {historyRef.current.map((entry, i) => (
                                         <li
-                                            key={i}
+                                            key={entry}
                                             className={clsx(
                                                 "group/item flex items-center justify-between px-3 py-2 text-xs font-mono cursor-pointer transition-colors border-l-2",
-                                                i === historyIndexRef.current
+                                                i === historyIndex
                                                     ? "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border-amber-500"
                                                     : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 border-transparent"
                                             )}
@@ -401,10 +246,10 @@ export function Sender({ isConnected, onSend }: SenderProps) {
             </div>
 
             <button
-                onClick={handleSend}
+                onClick={(e) => handleSend(e.shiftKey)}
                 disabled={!isConnected || !input}
                 className="mt-4 p-2.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95 shadow-lg flex-shrink-0"
-                title="Send Data"
+                title="Send (Enter) · Shift+Click or Shift+Enter to send without EOL"
             >
                 <Send size={18} />
             </button>

@@ -1,4 +1,4 @@
-import { Command, Sun, Moon, Settings as SettingsIcon, Trash2, RefreshCw } from 'lucide-react';
+import { Command, Sun, Moon, Settings as SettingsIcon, Trash2, RefreshCw, FileText } from 'lucide-react';
 import { Dropdown } from './Dropdown';
 import { useSettings } from '../contexts/SettingsContext';
 
@@ -23,7 +23,7 @@ export function StatusBar({
         theme, setTheme, viewMode, setViewMode,
         autoScroll, setAutoScroll, showMacros, setShowMacros,
         selectedPort, dataBits, stopBits, parity, flowControl,
-        reconnectTimeoutSec,
+        reconnectTimeoutSec, isLogging, setIsLogging,
     } = useSettings();
 
     const getConfigShorthand = () => {
@@ -93,6 +93,21 @@ export function StatusBar({
 
             {/* Right side: App Controls */}
             <div className="flex items-center gap-1">
+                {/* Logging Toggle */}
+                <button
+                    onClick={() => setIsLogging(!isLogging)}
+                    className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-bold transition-all hover:bg-gray-100 dark:hover:bg-white/5 ${isLogging
+                        ? 'text-red-600 dark:text-red-400 bg-red-500/5 animate-pulse-slow'
+                        : 'text-gray-500 dark:text-gray-400'
+                        }`}
+                    title={isLogging ? 'Stop Logging' : 'Start Logging'}
+                >
+                    <FileText size={10} />
+                    {isLogging ? 'LOGGING' : 'LOG'}
+                </button>
+
+                <div className="h-3 w-px bg-gray-200 dark:bg-gray-800 mx-1" />
+
                 {/* Clear Terminal Button */}
                 <button
                     onClick={onClear}

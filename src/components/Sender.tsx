@@ -83,7 +83,7 @@ export function Sender({ isConnected, onSend }: SenderProps) {
             pushHistory(input);
             setHistoryIndex(-1);
             draftRef.current = '';
-            setInput('');
+            // setInput(''); // Do not clear input after sending
         } catch (e) {
             console.error('Failed to send:', e);
         }

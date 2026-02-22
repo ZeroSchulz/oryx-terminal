@@ -27,6 +27,37 @@ const getTimestamp = () => {
   return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}.${now.getMilliseconds().toString().padStart(3, '0')}`;
 };
 
+function formatLogLine(type: 'rx' | 'tx', bytes: number[], viewMode: string): string {
+  let formatted: string;
+  switch (viewMode) {
+    case 'hex':
+      formatted = bytes.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+      break;
+    case 'dec':
+      formatted = bytes.map(b => b.toString(10).padStart(3, '0')).join(' ');
+      break;
+    case 'bin':
+      formatted = bytes.map(b => b.toString(2).padStart(8, '0')).join(' ');
+      break;
+    case 'oct':
+      formatted = bytes.map(b => b.toString(8).padStart(3, '0')).join(' ');
+      break;
+    case 'char':
+      formatted = bytes.map(b => (b >= 0x20 && b <= 0x7E) ? String.fromCharCode(b) : '.').join(' ');
+      break;
+    default: // text
+      formatted = bytes.map(b => {
+        if (b === 0x0D) return '\\r';
+        if (b === 0x0A) return '\\n';
+        if (b === 0x09) return '\\t';
+        if (b >= 0x20 && b <= 0x7E) return String.fromCharCode(b);
+        return '.';
+      }).join('');
+      break;
+  }
+  return `[${getTimestamp()}] ${type.toUpperCase()}  ${formatted}\n`;
+}
+
 const MAX_LINES = 10_000;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,7 +114,9 @@ function App() {
     const init = async () => {
       try {
         const docDir = await documentDir();
-        const defaultPath = await join(docDir, 'ORYX_Logs', 'session_log.txt');
+        const now = new Date();
+        const timestamp = `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}_${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}${now.getSeconds().toString().padStart(2, '0')}`;
+        const defaultPath = await join(docDir, 'ORYX_Logs', `session_log_${timestamp}.txt`);
         setLogPath(defaultPath);
       } catch (e) {
         console.error('Failed to resolve default log path:', e);
@@ -99,6 +132,11 @@ function App() {
   }, [viewMode]);
 
   useEffect(() => {
+    if (isLogging && !isLoggingRef.current && logPath) {
+      const header = `\n--- Logging started at ${new Date().toLocaleString()} ---\n`;
+      const encoded = Array.from(new TextEncoder().encode(header));
+      invoke('log_to_file', { path: logPath, data: encoded }).catch(e => console.error('Failed to write log header:', e));
+    }
     isLoggingRef.current = isLogging;
     logPathRef.current = logPath;
     breakModeRef.current = breakMode;
@@ -230,35 +268,22 @@ function App() {
 
       const uniqueBreakPoints = Array.from(new Set(breakPoints)).sort((a, b) => a - b);
 
-      // Logging to file
-      if (isLoggingRef.current && logPathRef.current) {
-        const logLimit = uniqueBreakPoints.length > 0
-          ? uniqueBreakPoints[uniqueBreakPoints.length - 1]
-          : (force ? data.length : 0);
-        if (logLimit > 0) {
-          try {
-            await invoke('log_to_file', { path: logPathRef.current, data: Array.from(data.slice(0, logLimit)) });
-          } catch (e) {
-            console.error('Failed to log:', e);
-            addLog(`Log Error: ${e}`, 'error');
-            setIsLogging(false);
-          }
-        }
-      }
-
-      // Process segments
+      // Process segments + collect log lines
+      const logLines: string[] = [];
       let lastIndex = 0;
       if (uniqueBreakPoints.length > 0) {
         for (const breakPoint of uniqueBreakPoints) {
           if (breakPoint > lastIndex && breakPoint <= data.length) {
             const segment = data.slice(lastIndex, breakPoint);
             addLog(new TextDecoder().decode(segment), 'rx', Array.from(segment));
+            if (isLoggingRef.current) logLines.push(formatLogLine('rx', Array.from(segment), currentViewMode));
             lastIndex = breakPoint;
           }
         }
         const remaining = data.slice(lastIndex);
         if (force && remaining.length > 0) {
           addLog(new TextDecoder().decode(remaining), 'rx', Array.from(remaining));
+          if (isLoggingRef.current) logLines.push(formatLogLine('rx', Array.from(remaining), currentViewMode));
           // remaining is consumed; keep any bytes that arrived during the await
         } else if (remaining.length > 0) {
           // Prepend unprocessed bytes before any new bytes that arrived during await
@@ -266,10 +291,23 @@ function App() {
         }
       } else if (force) {
         addLog(new TextDecoder().decode(data), 'rx', Array.from(data));
+        if (isLoggingRef.current) logLines.push(formatLogLine('rx', Array.from(data), currentViewMode));
         // all data consumed; keep any bytes that arrived during the await
       } else {
         // No breakpoints and not forced: restore data before any new bytes
         bufferRef.current = [...Array.from(data), ...bufferRef.current];
+      }
+
+      // Batch write formatted log lines
+      if (logLines.length > 0 && logPathRef.current) {
+        const encoded = Array.from(new TextEncoder().encode(logLines.join('')));
+        try {
+          await invoke('log_to_file', { path: logPathRef.current, data: encoded });
+        } catch (e) {
+          console.error('Failed to log:', e);
+          addLog(`Log Error: ${e}`, 'error');
+          setIsLogging(false);
+        }
       }
     } finally {
       flushInProgressRef.current = false;
@@ -453,6 +491,10 @@ function App() {
     try {
       await invoke('send_data', { data: dataBytes });
       addLog(command, 'tx', dataBytes);
+      if (isLoggingRef.current && logPathRef.current) {
+        const encoded = Array.from(new TextEncoder().encode(formatLogLine('tx', dataBytes, viewModeRef.current)));
+        invoke('log_to_file', { path: logPathRef.current, data: encoded }).catch(e => console.error('TX log error:', e));
+      }
       return true;
     } catch (e) {
       addLog(`Failed to send macro: ${e}`, 'error');
@@ -511,7 +553,13 @@ function App() {
 
       <Sender
         isConnected={isConnected}
-        onSend={(text, data) => addLog(text, 'tx', data)}
+        onSend={(text, data) => {
+          addLog(text, 'tx', data);
+          if (isLoggingRef.current && logPathRef.current) {
+            const encoded = Array.from(new TextEncoder().encode(formatLogLine('tx', data, viewModeRef.current)));
+            invoke('log_to_file', { path: logPathRef.current, data: encoded }).catch(e => console.error('TX log error:', e));
+          }
+        }}
       />
 
       <StatusBar

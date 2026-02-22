@@ -69,7 +69,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     const [flowControl, setFlowControl] = useState(getSaved('oryx_flowControl', 'None'));
     const [selectedPort, setSelectedPort] = useState<string>(getSaved('oryx_selectedPort', ''));
 
-    const [logPath, setLogPath] = useState(getSaved('oryx_logPath', ''));
+    const [logPath, setLogPath] = useState(''); // Do not persist log path to generate a new one each session
     const [isLogging, setIsLogging] = useState(false); // session-only: intentionally not persisted
 
     const [autoReconnect, setAutoReconnect] = useState(getSaved('oryx_autoReconnect', true));
@@ -101,14 +101,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             oryx_parity: parity,
             oryx_flowControl: flowControl,
             oryx_selectedPort: selectedPort,
-            oryx_logPath: logPath,
             oryx_autoReconnect: autoReconnect,
             oryx_reconnectTimeoutSec: reconnectTimeoutSec,
         };
         for (const [key, value] of Object.entries(settings)) {
             localStorage.setItem(key, JSON.stringify(value));
         }
-    }, [autoScroll, viewMode, showMacros, macroWidth, showTimestamp, showEol, eolSequence, breakMode, breakAfterBytesCount, breakBeforeSequenceValue, breakAfterSequenceValue, breakAfterTimeoutMs, dataBits, stopBits, parity, flowControl, selectedPort, logPath, autoReconnect, reconnectTimeoutSec]);
+    }, [autoScroll, viewMode, showMacros, macroWidth, showTimestamp, showEol, eolSequence, breakMode, breakAfterBytesCount, breakBeforeSequenceValue, breakAfterSequenceValue, breakAfterTimeoutMs, dataBits, stopBits, parity, flowControl, selectedPort, autoReconnect, reconnectTimeoutSec]);
 
     const value: SettingsContextType = {
         viewMode, setViewMode, theme, setTheme,

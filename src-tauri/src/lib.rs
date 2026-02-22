@@ -14,7 +14,6 @@ pub fn run() {
             running:      Arc::new(AtomicBool::new(false)),
             reconnecting: Arc::new(AtomicBool::new(false)),
             active_port:  Arc::new(Mutex::new(None)),
-            last_params:  Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             serial_manager::list_ports,

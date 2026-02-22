@@ -147,7 +147,11 @@ function App() {
     flushInProgressRef.current = true;
 
     try {
-      const data = Uint8Array.from(bufferRef.current);
+      // Atomically take all current bytes and clear the buffer in one step.
+      // Any bytes pushed by serial-data events during a subsequent `await`
+      // land in the now-empty bufferRef and are preserved — not overwritten.
+      const snapshot = bufferRef.current.splice(0);
+      const data = Uint8Array.from(snapshot);
       lastFlushTime.current = Date.now();
 
       const breakPoints: number[] = [];
@@ -173,8 +177,10 @@ function App() {
 
         if (breakModeRef.current === 'bytes') {
           const byteCount = breakAfterBytesCountRef.current;
-          // Use <= so a buffer that is exactly N bytes also gets a breakpoint
-          for (let i = byteCount; i <= data.length; i += byteCount) breakPoints.push(i);
+          // Guard against 0 or negative values which would cause an infinite loop
+          if (byteCount > 0) {
+            for (let i = byteCount; i <= data.length; i += byteCount) breakPoints.push(i);
+          }
         }
 
         if (breakModeRef.current === 'beforeSequence' && breakBeforeSequenceValueRef.current) {
@@ -253,13 +259,17 @@ function App() {
         const remaining = data.slice(lastIndex);
         if (force && remaining.length > 0) {
           addLog(new TextDecoder().decode(remaining), 'rx', Array.from(remaining));
-          bufferRef.current = [];
-        } else {
-          bufferRef.current = Array.from(remaining);
+          // remaining is consumed; keep any bytes that arrived during the await
+        } else if (remaining.length > 0) {
+          // Prepend unprocessed bytes before any new bytes that arrived during await
+          bufferRef.current = [...Array.from(remaining), ...bufferRef.current];
         }
       } else if (force) {
         addLog(new TextDecoder().decode(data), 'rx', Array.from(data));
-        bufferRef.current = [];
+        // all data consumed; keep any bytes that arrived during the await
+      } else {
+        // No breakpoints and not forced: restore data before any new bytes
+        bufferRef.current = [...Array.from(data), ...bufferRef.current];
       }
     } finally {
       flushInProgressRef.current = false;
@@ -342,6 +352,11 @@ function App() {
     return () => {
       unlistenDisconnect.then(f => f());
       unlistenReconnected.then(f => f());
+      // Clear the reconnect elapsed interval if the component unmounts mid-reconnect
+      if (reconnectElapsedIntervalRef.current) {
+        clearInterval(reconnectElapsedIntervalRef.current);
+        reconnectElapsedIntervalRef.current = null;
+      }
     };
   }, [addLog]);
 
@@ -367,7 +382,11 @@ function App() {
       if (bufferRef.current.length > 0) {
         const forceFlushTimeout = viewModeRef.current === 'text' ? 1000 : 50;
         const isStale = now - lastReceiveTime.current > forceFlushTimeout;
-        flushBuffer(isStale);
+        // Cap: force-flush if buffer exceeds 64 KB regardless of idle time.
+        // Prevents unbounded growth when data streams continuously without
+        // matching the EOL/break sequence (e.g. wrong EOL config in text mode).
+        const isOversize = bufferRef.current.length > 65536;
+        flushBuffer(isStale || isOversize);
       }
     }, 16);
     return () => clearInterval(interval);

@@ -13,7 +13,6 @@ pub struct SerialState {
     pub running: Arc<AtomicBool>,
     pub reconnecting: Arc<AtomicBool>,
     pub active_port: Arc<Mutex<Option<String>>>,
-    pub last_params: Mutex<Option<RawParams>>,
 }
 
 #[derive(Clone)]
@@ -219,8 +218,6 @@ pub fn open_port(
     let port = open_serial(&params)?;
     let read_port = port.try_clone().map_err(|e| e.to_string())?;
 
-    // Store params for reconnect
-    *state.last_params.lock().map_err(|e| e.to_string())? = Some(params.clone());
     *state.active_port.lock().map_err(|e| e.to_string())? = Some(port_name);
 
     state.reconnecting.store(false, Ordering::SeqCst);
@@ -250,7 +247,6 @@ pub fn close_port(state: State<'_, SerialState>) -> Result<(), String> {
 
     *state.active_port.lock().map_err(|e| e.to_string())? = None;
     *state.port.lock().map_err(|e| e.to_string())? = None;
-    *state.last_params.lock().map_err(|e| e.to_string())? = None;
 
     Ok(())
 }

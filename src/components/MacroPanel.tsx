@@ -49,6 +49,20 @@ export function MacroPanel({ onRun, isConnected }: MacroPanelProps) {
     const [dragOverId, setDragOverId] = useState<string | null>(null);
     const dragSourceRef = useRef<string | null>(null);
     const dragTargetRef = useRef<string | null>(null);
+    const dragListenersRef = useRef<{ move: (e: PointerEvent) => void; up: () => void } | null>(null);
+    // Kept fresh each render so the oryx-add-macro handler never closes over a stale startEdit
+    const startEditRef = useRef<(m?: Macro) => void>(() => {});
+
+    // Clean up any in-flight drag listeners if the component unmounts mid-drag
+    useEffect(() => {
+        return () => {
+            if (dragListenersRef.current) {
+                document.removeEventListener('pointermove', dragListenersRef.current.move);
+                document.removeEventListener('pointerup', dragListenersRef.current.up);
+                dragListenersRef.current = null;
+            }
+        };
+    }, []);
 
     const COLORS = ['blue', 'red', 'green', 'purple', 'orange', 'gray'];
 
@@ -59,7 +73,7 @@ export function MacroPanel({ onRun, isConnected }: MacroPanelProps) {
     useEffect(() => {
         const handleAddMacro = (e: any) => {
             const { command } = e.detail;
-            startEdit();
+            startEditRef.current(); // always calls the latest startEdit via ref
             setEditCommand(command);
             setEditName(`Macro ${new Date().toLocaleTimeString()}`);
         };
@@ -163,6 +177,8 @@ export function MacroPanel({ onRun, isConnected }: MacroPanelProps) {
             setEditColor('blue');
         }
     };
+    // Keep ref current every render so the oryx-add-macro handler always gets the latest closure
+    startEditRef.current = startEdit;
 
     type ColorType = 'bg' | 'text' | 'border' | 'accent';
     type ColorMap = Record<string, Record<ColorType, string>>;
@@ -255,12 +271,14 @@ export function MacroPanel({ onRun, isConnected }: MacroPanelProps) {
             }
             dragSourceRef.current = null;
             dragTargetRef.current = null;
+            dragListenersRef.current = null;
             setDragId(null);
             setDragOverId(null);
             document.removeEventListener('pointermove', onPointerMove);
             document.removeEventListener('pointerup', onPointerUp);
         };
 
+        dragListenersRef.current = { move: onPointerMove, up: onPointerUp };
         document.addEventListener('pointermove', onPointerMove);
         document.addEventListener('pointerup', onPointerUp);
     };

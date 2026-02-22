@@ -113,18 +113,22 @@ const TerminalRow = memo(function TerminalRow({
 
             <span className="flex-grow whitespace-pre-wrap font-medium font-mono relative px-3 py-0.5">
                 {viewMode === 'text' ? (
-                    parseAnsi(content).map((segment, idx) => (
-                        <span
-                            key={idx}
-                            style={segment.style}
-                            className={clsx({
-                                "font-bold": segment.bold,
-                                "underline": segment.underline
-                            })}
-                        >
-                            {segment.text}
-                        </span>
-                    ))
+                    content.includes('\x1b') ? (
+                        parseAnsi(content).map((segment, idx) => (
+                            <span
+                                key={idx}
+                                style={segment.style}
+                                className={clsx({
+                                    "font-bold": segment.bold,
+                                    "underline": segment.underline
+                                })}
+                            >
+                                {segment.text}
+                            </span>
+                        ))
+                    ) : (
+                        content
+                    )
                 ) : (
                     content
                 )}

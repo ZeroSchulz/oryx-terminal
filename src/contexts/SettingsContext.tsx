@@ -61,7 +61,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     const [breakAfterBytesCount, setBreakAfterBytesCount] = useState(getSaved('oryx_breakAfterBytesCount', 16));
     const [breakBeforeSequenceValue, setBreakBeforeSequenceValue] = useState(getSaved('oryx_breakBeforeSequenceValue', ''));
     const [breakAfterSequenceValue, setBreakAfterSequenceValue] = useState(getSaved('oryx_breakAfterSequenceValue', ''));
-    const [breakAfterTimeoutMs, setBreakAfterTimeoutMs] = useState(getSaved('oryx_breakAfterTimeoutMs', 5));
+    const [breakAfterTimeoutMs, setBreakAfterTimeoutMs] = useState(getSaved('oryx_breakAfterTimeoutMs', 50));
 
     const [dataBits, setDataBits] = useState(getSaved('oryx_dataBits', 8));
     const [stopBits, setStopBits] = useState(getSaved('oryx_stopBits', 1));

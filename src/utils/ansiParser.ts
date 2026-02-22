@@ -44,9 +44,13 @@ const colorMap: Record<number, string> = {
     107: 'var(--ansi-bright-white)',
 };
 
+// Module-level regex avoids recompilation on every call.
+// Must reset lastIndex before each use because of the `g` flag.
+const ANSI_REGEX = /\x1b\[([\d;]*)m/g;
+
 export function parseAnsi(text: string): AnsiSegment[] {
     const segments: AnsiSegment[] = [];
-    const ansiRegex = /\x1b\[([\d;]*)m/g;
+    ANSI_REGEX.lastIndex = 0;
 
     let lastIndex = 0;
     let currentFg: string | undefined = undefined;
@@ -55,7 +59,7 @@ export function parseAnsi(text: string): AnsiSegment[] {
     let currentUnderline = false;
 
     let match;
-    while ((match = ansiRegex.exec(text)) !== null) {
+    while ((match = ANSI_REGEX.exec(text)) !== null) {
         const plainText = text.substring(lastIndex, match.index);
         if (plainText) {
             segments.push({
@@ -95,7 +99,7 @@ export function parseAnsi(text: string): AnsiSegment[] {
             }
         }
 
-        lastIndex = ansiRegex.lastIndex;
+        lastIndex = ANSI_REGEX.lastIndex;
     }
 
     const remainingText = text.substring(lastIndex);

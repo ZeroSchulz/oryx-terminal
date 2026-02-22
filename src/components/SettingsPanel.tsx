@@ -315,8 +315,9 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                                             <div className="ml-7 flex items-center gap-2 animate-in fade-in duration-150">
                                                 <input
                                                     type="number"
+                                                    min={1}
                                                     value={breakAfterBytesCount}
-                                                    onChange={(e) => setBreakAfterBytesCount(Number(e.target.value))}
+                                                    onChange={(e) => setBreakAfterBytesCount(Math.max(1, Number(e.target.value)))}
                                                     className="w-20 bg-gray-50 dark:bg-[#1a1c20] border border-gray-200 dark:border-[#303339] rounded-lg px-2 py-1 text-xs text-gray-900 dark:text-gray-100 outline-none focus:ring-1 focus:ring-blue-500 shadow-inner transition-all"
                                                 />
                                                 <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">bytes</span>

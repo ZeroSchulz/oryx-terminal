@@ -54,9 +54,9 @@ export function ContextMenu({ x, y, options, onClose }: ContextMenuProps) {
             className={`fixed z-[100] min-w-[180px] bg-white dark:bg-[#252526] border border-gray-200 dark:border-white/10 rounded-lg shadow-xl py-1 transition-opacity duration-75 ${measured ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
             style={{ left: adjustedPos.x, top: adjustedPos.y }}
         >
-            {options.map((opt, idx) => (
+            {options.map((opt) => (
                 <button
-                    key={idx}
+                    key={opt.label}
                     onClick={() => {
                         opt.onClick();
                         onClose();

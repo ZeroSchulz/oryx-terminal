@@ -4,6 +4,7 @@ import { Send, Terminal, ChevronDown, Clock, X, BookmarkPlus } from 'lucide-reac
 import clsx from 'clsx';
 import { Dropdown } from './Dropdown';
 import { parseInput } from '../utils/parser';
+import { computeChecksum, ChecksumType } from '../utils/checksum';
 
 // Re-export so existing callers (App.tsx, etc.) don't need to change their import path.
 export { parseInput } from '../utils/parser';
@@ -16,6 +17,7 @@ interface SenderProps {
 const HISTORY_MAX = 100;
 const HISTORY_KEY = 'oryx_sendHistory';
 const LINE_ENDING_KEY = 'oryx_lineEnding';
+const CHECKSUM_KEY = 'oryx_checksumType';
 
 function loadHistory(): string[] {
     try {
@@ -39,6 +41,14 @@ export function Sender({ isConnected, onSend }: SenderProps) {
         localStorage.setItem(LINE_ENDING_KEY, lineEnding);
     }, [lineEnding]);
 
+    const [checksumType, setChecksumType] = useState<ChecksumType>(() => {
+        return (localStorage.getItem(CHECKSUM_KEY) as ChecksumType) ?? 'none';
+    });
+
+    useEffect(() => {
+        localStorage.setItem(CHECKSUM_KEY, checksumType);
+    }, [checksumType]);
+
     // History: stored in a ref so mutations don't cause re-renders
     const historyRef = useRef<string[]>(loadHistory());
     // historyIndex as state so React re-renders when browsing state changes
@@ -59,6 +69,9 @@ export function Sender({ isConnected, onSend }: SenderProps) {
         const dataBytes = parseInput(input);
 
         if (!raw) {
+            const csBytes = computeChecksum(checksumType, dataBytes);
+            dataBytes.push(...csBytes);
+
             if (lineEnding === 'CR')   dataBytes.push(13);
             if (lineEnding === 'LF')   dataBytes.push(10);
             if (lineEnding === 'CRLF') { dataBytes.push(13); dataBytes.push(10); }
@@ -141,6 +154,21 @@ export function Sender({ isConnected, onSend }: SenderProps) {
                     { label: 'CRLF', value: 'CRLF' },
                 ]}
                 onChange={setLineEnding}
+                direction="up"
+            />
+
+            <Dropdown
+                label="Checksum"
+                value={checksumType}
+                options={[
+                    { label: 'None',      value: 'none' },
+                    { label: 'XOR',       value: 'xor' },
+                    { label: 'LRC',       value: 'lrc' },
+                    { label: 'CRC-8',     value: 'crc8' },
+                    { label: 'CRC-16/MB', value: 'crc16-modbus' },
+                    { label: 'CRC-CCITT', value: 'crc-ccitt' },
+                ]}
+                onChange={(v) => setChecksumType(v as ChecksumType)}
                 direction="up"
             />
 
